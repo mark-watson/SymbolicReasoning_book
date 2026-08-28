@@ -32,7 +32,7 @@
                               vars)))
             (display assignment)
             (display " => ")
-            (displayln (eval expr (make-environment vars assignment)))
+            (displayln (evaluate expr (make-environment vars assignment)))
             (loop (+ i 1))))))))
 
 ;; Simple evaluation for a single assignment
@@ -89,3 +89,8 @@
 (displayln "")
 (displayln "(x OR y) AND (x IMPLIES y) with x=#t, y=#f:")
 (displayln (evaluate complex env1))
+
+;; Truth table for the nested formula
+(displayln "")
+(displayln "Truth table for (x OR y) AND (x IMPLIES y):")
+(truth-table '(x y) complex)

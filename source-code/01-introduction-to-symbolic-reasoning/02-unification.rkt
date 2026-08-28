@@ -125,8 +125,7 @@
 (displayln (resolve '?y test5))
 
 ;; Test that should fail
-(define test6 (unify '(?x ?x) '(a b) '()))
 (displayln "")
 (displayln "Unify (?x ?x) with (a b) - expecting failure:")
 (with-handlers ((exn:fail? (lambda (e) (displayln (exn-message e)))))
-  (print-env test6))
+  (print-env (unify '(?x ?x) '(a b) '())))
