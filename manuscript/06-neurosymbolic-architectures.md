@@ -1,49 +1,195 @@
-# Generalization & Autonomous Skill Acquisition
+# Neurosymbolic Architectures & Algorithms
 
-A key measure of intelligence—whether artificial or biological—is the ability to generalize beyond specific experiences and acquire new skills autonomously. For program synthesis systems, this means not just solving the problems they were trained on, but learning to solve new classes of problems and building libraries of reusable knowledge.
+The previous chapter explored the neurosymbolic paradigm as a design pattern: neural nets for perception, symbolic engines for reasoning, and a smooth interface that connects them. This chapter tours four concrete architectures that realize that pattern, each with a working example written in Racket. These architectures—Logic Tensor Networks (LTN), Logical Neural Networks (LNN), NeurASP, and Differentiable Inductive Logic Programming (∂ILP)—share the same goal but differ in the trade-offs they make between expressivity, training stability, and interpretability.
 
-## Generalizing Beyond the Training Distribution
+All code examples are in `source-code/06-neurosymbolic-architectures/` and are written in plain Racket so that every step of the reasoning and learning loop is visible. None of the examples requires an external solver or library; each architecture is implemented from first principles in a few dozen lines.
 
-Most machine learning systems excel within their training distribution but fail catastrophically when inputs shift outside it. Program synthesis systems face this challenge acutely because programs must generalize to all possible inputs, not just those in the training set.
+## Logic Tensor Networks (LTN)
 
-True generalization in synthesis requires:
-- **Systematic Generalization**: The ability to combine learned components in novel ways
-- **Compositional Generalization**: Understanding how primitive operations compose to create complex behaviors
-- **Few-Shot Generalization**: Learning new tasks from very few examples
+Logic Tensor Networks (LTN) treat logical formulas as computations over tensors. Constants in a first-order language are mapped to embedding vectors, predicates are neural nets that map tuples of embeddings to truth degrees in [0,1], and logical connectives are smooth relaxations built from t-norms. The key insight is that, with these choices, logical inference becomes differentiable: one can adjust the parameters of the predicates—and even the constants themselves—via gradient descent to maximize the degree of satisfaction of a knowledge base.
 
-Achieving these forms of generalization is crucial for synthesis systems that must handle real-world variability. Techniques like meta-learning, modular architectures, and explicit compositionality constraints help synthesis systems learn programs that truly generalize.
+The example `01-logic-tensor-network.rkt` implements a minimal LTN. Constants are structs holding a name and an embedding:
 
-## Compositional Abstractions and Reusable Modules
+```racket
+(struct const (name embedding) #:transparent)
+(define alice (const 'alice '(0.9 0.1)))
+(define bob   (const 'bob   '(0.7 0.6)))
+(define carol (const 'carol '(0.4 0.8)))
+```
 
-Human programmers build expertise by creating and reusing abstractions. A skilled developer doesn't write sorting algorithms from scratch each time; they use library functions and compose them in new ways. Similarly, effective synthesis systems must discover and leverage reusable abstractions.
+Predicates are structs with a mutable weight vector. Evaluating a predicate takes the dot product of its weights with the concatenated embeddings of its arguments, then applies a sigmoid:
 
-- **Macro Learning**: Automatically discover commonly used program fragments and add them to the search space
-- **Library Learning**: Build libraries of functions that can be composed to solve new problems
-- **Hierarchical Synthesis**: Decompose problems into subproblems that can be solved independently and composed
+```racket
+(struct pred (name [weights #:mutable]) #:transparent)
+(define (eval-pred p args)
+  (sigmoid (dot (pred-weights p)
+                (apply append (map eval-const args)))))
+```
 
-These techniques dramatically reduce the effective search space for new problems. Instead of searching through all possible programs, the synthesizer composes high-level operations from its library.
+Conjunction is the product t-norm, and implication is the smooth Reichenbach form:
 
-## Test-Time Adaptation and Reasoning
+```racket
+(define (t-and x y) (* x y))
+(define (t-impl x y) (+ 1.0 (- x) (* x y)))
+```
 
-Real-world deployment often requires systems to adapt to new environments or tasks at test time, without retraining. Program synthesis offers a natural mechanism for test-time adaptation: synthesize a program specifically for the current context.
+We encode the rule ∀x,y (friend(x,y) ∧ likes(x,sports) → likes(y,sports)) by first writing a per-grounding satisfaction function:
 
-- **Online Synthesis**: Generate programs on-the-fly for new inputs
-- **Few-Shot Adaptation**: Quickly synthesize programs from a handful of examples in the new domain
-- **Interactive Synthesis**: Engage in a dialogue with users to refine specifications and constraints
+```racket
+(define (rule-satisfaction x y)
+  (let* ((fxy (eval-pred friend (list x y)))
+         (lsx (eval-pred likes-sports (list x)))
+         (lsy (eval-pred likes-sports (list y)))
+         (premise (t-and fxy lsx)))
+    (t-impl premise lsy)))
+```
 
-Test-time synthesis transforms the machine learning paradigm from "learn once, apply many times" to "adapt continuously, reason about each new situation." This approach is particularly valuable for domains where training data is scarce but reasoning is essential.
+and then generalizing it to the whole domain with a product over all pairs:
 
-## Program Synthesis for Autonomous Skill Acquisition
+```racket
+(define (kb-satisfaction)
+  (t-and-list
+   (for*/list ((x (list alice bob carol))
+               (y (list alice bob carol)))
+     (rule-satisfaction x y))))
+```
 
-The ultimate goal of autonomous skill acquisition is for AI systems to discover, learn, and master new skills without human intervention. Program synthesis provides a framework for this by treating skills as programs that can be composed and refined.
+Because every step is differentiable, we can perform gradient ascent on the parameters to maximize the KB satisfaction:
 
-Key challenges and approaches include:
-- **Skill Discovery**: Use exploration and intrinsic motivation to identify valuable new capabilities
-- **Skill Composition**: Combine simple skills into complex, hierarchical behaviors
-- **Lifelong Learning**: Continuously build and refine a library of skills throughout the system's lifetime
+```racket
+(define (numeric-grad p)
+  ;; finite difference on each weight in p's weight vector
+  ...)
+```
 
-Program synthesis for skill acquisition has applications in robotics (learning manipulation skills), software engineering (learning to use new APIs), and scientific discovery (learning to apply new analytical methods).
+The output shows the KB satisfaction rise after a hundred ascent steps, with the predicate weights moving in the direction preferred by the rule. LTNs have been used for knowledge‑base completion, semantic image interpretation, and any setting where a structured set of logical constraints must be reconciled with noisy learned models.
 
----
+## Logical Neural Networks (LNN)
 
-Generalization and autonomous skill acquisition represent the cutting edge of program synthesis research. By learning to generalize, discover abstractions, adapt at test time, and acquire new skills, synthesis systems move closer to the general intelligence required to solve novel problems in novel domains.
+Logical Neural Networks (LNN) take a complementary stance: the structure of a logical formula is mapped directly onto a neural network. Each neuron computes a subformula’s truth value, and the connections mirror the formula’s parse tree. Input neurons hold degrees of belief for atomic facts; internal neurons implement connectives such as AND and IMPL; and the network output is the degree of truth of the full formula.
+
+The example `02-logical-neural-network.rkt` defines neurons as a small struct type:
+
+```racket
+(struct neuron (kind [inputs #:mutable] [value #:mutable]) #:transparent)
+```
+
+where `kind` is either `'input`, `'and`, or `'impl`. Evaluation is a tree walk:
+
+```racket
+(define (eval-neuron n)
+  (match (neuron-kind n)
+    ['input (neuron-value n)]
+    ['and  (let ((vals (map eval-neuron (neuron-inputs n))))
+             (set-neuron-value! n (t-and vals)))]
+    ['impl (let* ((pre  (eval-neuron (first  (neuron-inputs n))))
+                  (post (eval-neuron (second (neuron-inputs n)))))
+             (t-impl pre post))]))
+```
+
+Building the network for a simple theory `P AND (P -> Q)` looks like:
+
+```racket
+(define p (neuron 'input '() 0.9))
+(define q (neuron 'input '() 0.2))
+(define impl-node (neuron 'impl (list p q) #f))
+(define net (neuron 'and (list p impl-node) #f))
+```
+
+To make learning concrete, the implementation also computes a finite‑difference gradient of the network output with respect to the input neuron `q` and performs a short gradient‑ascent loop:
+
+```racket
+(define (neuron-grad net target-neuron eps)
+  ;; numeric gradient of eval-neuron wrt target-neuron
+  ...)
+```
+
+After a few dozen steps the value of `q`—initially low—rises toward `1.0`, and the overall network output rises from `0.252` to `0.9`. This is precisely the classical modus‑ponens behavior, but produced by gradient descent: the implication neuron penalizes states where `P` is high and `Q` is low, so the overall AND score improves only when `Q` goes up. LNNs thus allow both forward inference (deriving consequences) and backward inference (abducing likely premises) in the same network, and their learned parameters can be read off as the relative importance or confidence attached to each logical connection.
+
+## NeurASP: Integrating Answer Set Programming with Neural Networks
+
+NeurASP bridges the declarative power of Answer Set Programming (ASP) with the pattern‑recognition power of neural nets. In a NeurASP system, a neural network acts as an oracle that produces probabilities over atomic facts (e.g., object classes in an image). These probabilities are then embedded in an ASP program, whose stable models correspond to solutions that satisfy symbolic constraints. Crucially, the training objective—maximize the probability of the correct answer set—gradients flow *through* the ASP solving step back into the neural network, so the network learns to produce perceptions that are consistent with the ASP rules.
+
+The example `03-neurasp.rkt` implements a tiny simulation of this architecture. The neural component is a simple logit‑and‑sigmoid model that takes an image feature vector and outputs a probability for each atomic class:
+
+```racket
+(define (nn-scores img ws)
+  (map (lambda (w) (sigmoid (dot img w))) ws))
+```
+
+The ASP component is represented as a set of soft rules—each rule is a clause that takes a hash of atom‑to‑probability mappings and returns a satisfaction degree. For example:
+
+```racket
+(define (rule-sat probs)
+  (let* ((c-red  (hash-ref probs 'red))
+         (c-blue (hash-ref probs 'blue))
+         (s-circ (hash-ref probs 'circle))
+         (s-sq   (hash-ref probs 'square))
+         (c-flag (hash-ref probs 'flag))
+         (impl (lambda (x y) (+ 1.0 (- x) (* x y)))))
+    (list
+     (impl (* c-red s-circ) c-flag)
+     (impl (* c-blue s-sq)   c-flag)
+     (impl (* c-red s-sq)   (- 1.0 c-flag)) ; red & square -> NOT flag
+     ...
+     )))
+```
+
+The total ASP satisfaction is the product of the individual rule satisfactions. To train the system we adjust the neural weights so that, for a red‑circle image, the derived probability of the logical conclusion `flag` increases. A finite‑difference gradient over the NN weights followed by gradient ascent drives up the ASP satisfaction and, correspondingly, the probability of the correct logical answer.
+
+NeurASP shows how to reuse mature symbolic solvers (clingo) for structured prediction while still learning the perceptual front‑end. The key takeaway is that the symbolic layer does not need to be rewritten as a differentiable layer; rather, its *output* (a stable‑model probability) is differentiable, and that gradient path is enough to couple learning and reasoning.
+
+## Differentiable Inductive Logic Programming (∂ILP)
+
+Inductive Logic Programming (ILP) learns logic programs from examples, but classical ILP relies on symbolic search over a discrete space of clauses and is not differentiable. Differentiable ILP (∂ILP) relaxes that discreteness: instead of committing to a single rule, it learns a *soft* selection over a set of candidate rules, with the selection expressed as a softmax over learnable weights. Inference then computes a weighted combination of candidate rule applications, a process that is end‑to‑end differentiable.
+
+The example `04-dilp.rkt` demonstrates this with a tiny "grandparent" learning task. Three candidate rules are defined as procedures that test a simple relational database:
+
+```racket
+(define (eval-rule r db x z)
+  (cond
+    [(eq? r 'R1)  ;; parent(X,Y) ∧ parent(Y,Z) -> grandparent(X,Z)
+     (if (for/or ((y '(ann bob carl dan)))
+           (and (holds? db 'parent x y)
+                (holds? db 'parent y z)))
+         1.0 0.0)]
+    [(eq? r 'R2)  ;; parent(X,Y) ∧ sibling(Y,Z) -> grandparent(X,Z)
+     ...]
+    [(eq? r 'R3)  ;; sibling(X,Y) ∧ parent(Y,Z) -> grandparent(X,Z)
+     ...]))
+```
+
+Given rule weights, inference computes a softmax over the weights and produces a weighted sum of the candidate scores:
+
+```racket
+(define (infer-grandparent weights db x z)
+  (let* ((scores (rule-weights->scores weights db x z))
+         (exps   (map (lambda (w) (exp w)) weights))
+         (sumexps (apply + exps))
+         (softweights (map (lambda (e) (/ e sumexps)) exps)))
+    (apply + (map * softweights scores))))
+```
+
+Training minimizes a mean‑squared‑error loss between the inferred score and the target truth value for positive and negative examples. The gradient is again computed numerically, and gradient descent drives the rule weights until the softmax puts nearly all its mass on the correct rule `R1`. The final softmax, shown in the output, sharply favors `R1` (~0.896) over the alternatives, and inference on held‑out examples behaves accordingly.
+
+∂ILP illustrates how to combine the interpretability of ILP with the flexibility of gradient descent. Because the candidate rules are explicit and readable, the resulting model remains auditable: you can inspect the learned softmax and see which logical rule the system has come to rely on. At the same time, the relaxation allows the system to learn from noisy examples and to be trained jointly with neural components when the clauses themselves have learned parameters.
+
+## Running the Examples
+
+All four programs run with a stock Racket installation and no external packages:
+
+```bash
+cd source-code/06-neurosymbolic-architectures
+racket 01-logic-tensor-network.rkt
+racket 02-logical-neural-network.rkt
+racket 03-neurasp.rkt
+racket 04-dilp.rkt
+```
+
+Each output narrates the architectural idea in miniature: the LTN prints its KB‑satisfaction before and after ascent; the LNN prints its network output and how a belief neuron is updated; NeurASP prints the satisfaction of its soft rules and the probability change of a derived atom; and ∂ILP prints its learning loss and the final softmax over rule templates.
+
+## Wrap Up
+
+These four architectures demonstrate different points on the neurosymbolic design space. LTNs and LNNs map logic directly onto tensor computations—LTNs at the level of embeddings and t‑norms, LNNs at the level of neurons that compute connectives—making them naturally end‑to‑end differentiable. NeurASP keeps the symbolic component (ASP) largely intact, using a probabilistic interface to couple it with a neural front‑end. ∂ILP keeps the symbolic form of clauses but softens the selection over them, preserving interpretability while permitting gradient training. All four show that the neurosymbolic paradigm, introduced in the previous chapter, can be instantiated in concrete, trained systems that combine perception, reasoning, and learning in a single architecture.
+
+As we move to advanced topics in the next part of this book, these architectures form a practical toolbox: you can choose the one whose balance of structure, differentiability, and scalability best matches a given problem, and you can often compose them (for example, using an LNN to score candidate formulas that are then filtered by an ASP solver). The examples in this directory are intentionally minimal, but each captures the core mechanic so you can lift it into larger systems or compare it with published implementations.

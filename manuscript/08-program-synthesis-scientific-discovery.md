@@ -1,66 +1,199 @@
-# Benchmarks, Evaluation, and the Path to AGI
+# Program Synthesis for Scientific Discovery
 
-As program synthesis and neurosymbolic AI advance, we need rigorous ways to measure progress and evaluate systems. This chapter examines the key benchmarks and evaluation methodologies that drive research forward, and considers the broader question of whether these approaches are leading toward artificial general intelligence.
+Science advances through a cycle of hypothesizing, testing, and refinement. Program synthesis can automate each step: hypotheses are programs that predict data, tests are checks of those programs against observations, and refinement is a new round of search guided by where the current hypothesis fails. This chapter shows how the inductive and deductive machinery from earlier chapters applies to scientific problems, from rediscovering physical laws to reasoning about causal interventions. The code examples are in `source-code/08-program-synthesis-scientific-discovery/` and run with a stock Racket installation.
 
-## Evaluating General Intelligence and Reasoning
+## Automated Hypothesis Generation and Testing
 
-Traditional AI benchmarks often measure narrow capabilities on specific tasks. For program synthesis and reasoning, we need evaluation frameworks that assess:
+A scientific hypothesis is a small, executable explanation for observed data. Rather than treating it as a number (a fit coefficient) or a black-box prediction rule, we write it as a program: `V = (* i 2)` says "the voltage is the current multiplied by resistance 2." A hypothesis in this form is compact, interpretable, and falsifiable: give it any current you like and it predicts a voltage.
 
-- **Generalization**: Can the system solve problems outside its training distribution?
-- **Compositionality**: Can it combine learned components in novel ways?
-- **Efficiency**: How many examples or how much computation does it require?
-- **Interpretability**: Are its solutions understandable and verifiable?
+The example `01-hypothesis-generation.rkt` builds a tiny hypothesis generator for a resistor circuit. It enumerates candidate formulas over a grammar with constants, the measured variable `i`, and the operators `+`, `-`, `*`, `/`, and `sq`:
 
-Evaluating these properties requires carefully designed benchmarks that isolate specific capabilities and avoid "shortcut" solutions that exploit dataset biases without genuine reasoning.
+```racket
+(define (gen-hypotheses depth)
+  (define leaves '(i 1 2 3 4))
+  (if (= depth 1)
+      leaves
+      (let ((smaller (gen-hypotheses (- depth 1))))
+        (dedupe
+         (append
+          leaves
+          (for/list ((a smaller)) `(sq ,a))
+          (for*/list ((a leaves) (b leaves)) `(* ,a ,b))
+          (for*/list ((a smaller) (b leaves)) `(* ,a ,b))
+          (for*/list ((a smaller) (b leaves)) `(+ ,a ,b))
+          (for*/list ((a smaller) (b leaves)) `(/ ,a ,b)))))))
+```
 
-## Key Benchmarks
+Each hypothesis is scored by two components: the *fit error* (sum of squared prediction errors on the measurements) and a *simplicity penalty* (the AST size). The combined score is what scientists call an Occam prior: prefer the simplest hypothesis that fits the data.
 
-Several benchmarks have emerged as standard evaluation tools for program synthesis and reasoning research:
+```racket
+(define (score e data (lambda-simple 0.5))
+  (+ (fit-error e data) (* lambda-simple (size e))))
+```
 
-### Abstraction and Reasoning Corpus (ARC)
+For simulated measurements of `V = 2 I` with small noise, the search returns exactly the right form at the top of the ranked list:
 
-Created by François Chollet, ARC is designed to measure fluid intelligence—the ability to solve novel problems without prior knowledge. ARC tasks:
-- Require understanding of abstract concepts like symmetry, gravity, and object permanence
-- Cannot be solved by memorization or pattern matching alone
-- Have unique solutions that can be verified but must be derived through reasoning
+```
+Top 5 hypotheses by fit + simplicity:
+  (* i 2)   score=1.5223  size=3
+  (* 2 i)   score=1.5223  size=3
+  (+ i i)   score=1.5223  size=3
+  (+ i 3)   score=11.422300000000003  size=3
+  (+ 3 i)   score=11.422300000000003  size=3
 
-ARC remains an extremely challenging benchmark, with current AI systems solving only a small fraction of tasks. Success on ARC would represent a major milestone toward general intelligence.
+Selected hypothesis: V = (* i 2)
+```
 
-### Other Key Benchmarks
+Three hypotheses tie at the optimum because all three are the same law expressed three different ways. This is a feature of parsimony-first ranking, not a bug: when two hypotheses have equal fit, we rank the simpler one higher, and ties are surfaced as ties, which tells the experimenter there are equivalent formulations to test with a new experiment.
 
-- **DeepMind Mathematics Dataset**: Tests mathematical reasoning and program synthesis skills
-- **SyGuS Competition Benchmarks**: Standardized problems for syntax-guided synthesis
-- **CodeNet**: Large-scale dataset for program synthesis from natural language
-- **Scan2CAD and Visual Reasoning Benchmarks**: Test compositional visual reasoning
+This loop—generate, score by fit + simplicity, report the top hypotheses—is a template for automated scientific discovery. Real systems do exactly this on richer grammars (trigonometric functions, differential operators, symmetries) and on much larger datasets, but the underlying search-and-parsimony logic is identical.
 
-Each benchmark emphasizes different aspects of reasoning and synthesis, providing a comprehensive evaluation suite for the field.
+## Data-Efficient Learning for Scientific Domains
 
-## The Future of Neurosymbolic AI and Program Synthesis
+Scientific data is expensive. A particle physicist has a handful of collision events; an ecologist may have years of sparse sensor readings; a chemist may have one or two measurements per molecule. Machine learning systems trained on millions of examples are simply not available. Program synthesis offers a different lever: by strongly constraining the hypothesis space with a grammar of physically plausible formulas, it is possible to recover the correct law from a handful of noisy observations.
 
-Looking forward, several trends seem likely to shape the future of the field:
+The example `02-data-efficient-learning.rkt` simulates a free-fall experiment with just four measurements at t = 1, 2, 3, 4 seconds:
 
-### Integration with Large Language Models
+```racket
+(define measurements
+  '((1 . 4.95) (2 . 19.6) (3 . 44.0) (4 . 78.5)))
+```
 
-Large language models (LLMs) have demonstrated remarkable capabilities in code generation and few-shot learning. The future likely involves tighter integration of LLMs with symbolic methods:
-- Using LLMs to propose candidate programs or repairs
-- Using symbolic verification to check and refine LLM outputs
-- Combining LLM's broad knowledge with symbolic methods' precision
+These four points are noisy samples of `d = (1/2) g t^2` with `g ≈ 9.8 m/s^2`, so we'd like the system to find `(* (sq t) 5)` (a constant close to `g/2 = 4.9`). The enumerator walks a grammar of arithmetic expressions over `t` and produces a few thousand candidates:
 
-### Autonomous Scientific Discovery
+```racket
+(define (gen-exprs depth)
+  (if (= depth 1)
+      leaves
+      (let ((smaller (gen-exprs (- depth 1))))
+        (append
+         leaves
+         (for/list ((a smaller)) `(sq ,a))
+         (for*/list ((a smaller) (b leaves)) `(* ,a ,b))
+         (for*/list ((a smaller) (b leaves)) `(+ ,a ,b))
+         (for*/list ((a smaller) (b leaves)) `(/ ,a ,b))))))
+```
 
-As discussed in Chapter 8, program synthesis for science is a transformative application. Future systems may:
-- Discover new physical laws from experimental data
-- Design experiments without human guidance
-- Propose and test scientific theories autonomously
+The system then ranks candidates by fit error on the four points. The result is unambiguous:
 
-### Human-AI Collaboration
+```
+Top 5 by fit (with size):
+  (* (sq t) 5)  err=3.4124999999999988 size=4
+  (* (* t t) 5)  err=3.4124999999999988 size=5
+  (* (* t 5) t)  err=3.4124999999999988 size=5
+  (* (* 5 t) t)  err=3.4124999999999988 size=5
+  (sq (* t 2))  err=288.1125 size=4
+```
 
-Rather than replacing humans, the most effective systems will augment human intelligence. Interactive synthesis systems that collaborate with human experts—combining human intuition with machine search—are a promising direction.
+Three of the top four hypotheses are trivially equivalent re-writings of `5 * t^2`. The fifth is a different functional form, `4 t^2`, and it is decisively worse. Because the grammar encodes a plausible family of laws, four data points suffice to pin down the right family unambiguously; a purely statistical regressor would have needed many more examples and would still be interpolating within its training range rather than extrapolating the law `d ∝ t²`.
 
-### Toward AGI?
+This is the data-efficiency advantage of synthesis in scientific domains: strong priors embodied in the grammar turn a handful of points into a confident, interpretable conclusion.
 
-Whether program synthesis and neurosymbolic AI lead to artificial general intelligence remains an open question. However, these approaches address fundamental limitations of current deep learning: compositional generalization, data efficiency, interpretability, and formal reasoning. Progress in this direction takes us beyond narrow AI toward systems with more flexible, robust, and general capabilities.
+## Causal and Temporal Reasoning in Synthesis
 
----
+Correlation is not causation. A model that merely fits a curve to past observations will happily predict a hospitalization drop when vaccination rises, but it cannot answer "what hospital level would we see if we doubled vaccination?" or "what if infections were eliminated by a new drug?" Those are *counterfactual* questions, and answering them requires a model that encodes structural (mechanistic) relationships, not just statistical ones.
 
-The path forward involves not just technical advances but careful consideration of evaluation, benchmarks, and the ultimate goals of AI research. By measuring progress rigorously and aiming for genuine general intelligence, the field can build systems that truly augment human capabilities.
+The example `03-causal-reasoning.rkt` builds a tiny causal model with three variables—`vaccinate`, `infection`, and `hospital`—and two directed causal links:
+
+```racket
+(define links
+  (list (list 'vaccinate 'infection -0.7)   ; vaccinate lowers infection
+        (list 'infection 'hospital   0.8))) ; infection raises hospital
+```
+
+Each node also has a baseline value; the links specify how parent's value shifts the child's. The core operation is *propagation*: starting from the observed baselines (or from an intervention), compute each node's value in topological order, clamped to [0,1]:
+
+```racket
+(define (propagate interventions)
+  (define vaccinate
+    (hash-ref interventions 'vaccinate
+              (hash-ref baseline 'vaccinate)))
+  (define infection
+    (if (hash-has-key? interventions 'infection)
+        (hash-ref interventions 'infection)
+        (clamp01 (+ (hash-ref baseline 'infection)
+                    (* -0.7 vaccinate)))))
+  (define hospital
+    (if (hash-has-key? interventions 'hospital)
+        (hash-ref interventions 'hospital)
+        (clamp01 (+ (hash-ref baseline 'hospital)
+                    (* 0.8 infection)))))
+  (hash 'vaccinate vaccinate 'infection infection 'hospital hospital))
+```
+
+The three scenarios in the example are:
+
+- **Observational:** run the model without interventions.
+- **do(vaccinate = 0.8):** force vaccination to double and propagate the consequences.
+- **do(infection = 0):** force infection to zero (an extreme intervention) and look at hospitalization.
+
+Running the example shows the difference between prediction and intervention:
+
+```
+Observational:     vaccinate=0.4 infection=0.32 hospital=0.756
+do(vaccinate=0.8): vaccinate=0.8 infection=0.04  hospital=0.532
+do(infection=0):                 infection=0.0   hospital=0.5
+```
+
+Notice that the *observational* hospital value (`0.756`) is computed endogenously from the observed vaccination level, not fed in by hand; and that *do(infection=0)* leaves `vaccinate` untouched while slashing `hospital` to its baseline of `0.5`. These are exactly the kinds of answers a purely correlational model cannot give. A synthesis system that can produce causal models like this—rather than just fitted curves—gives scientists the ability to ask "what if" and to design experiments that discriminate between competing causal structures.
+
+## Case Study: Equation Discovery — Kepler's Third Law
+
+We close with a concrete case study of program synthesis as scientific discovery. Kepler's third law states that the square of a planet's orbital period is proportional to the cube of the semi-major axis of its orbit: `T^2 = k a^3`. Suppose a modern astronomer has a handful of (semi-major axis, period-squared) measurements and no memory of Kepler. Can a synthesis system recover the law?
+
+The example `04-equation-discovery-kepler.rkt` does exactly that. The grammar is restricted to power-law-style expressions: atoms are `a` and small integers, unary operators are `pow2` and `pow3`, and binary combinations are `*` and `+`:
+
+```racket
+(define (gen-laws)
+  (define atoms '(a 1 2 3))
+  (define unary (append (map (lambda (x) `(pow2 ,x)) atoms)
+                        (map (lambda (x) `(pow3 ,x)) atoms)))
+  (append atoms unary
+          (for*/list ((x atoms) (y (append atoms unary))) `(* ,x ,y))
+          (for*/list ((x (list 'a)) (y unary)) `(* ,x ,y))
+          (for*/list ((x atoms) (y unary)) `(+ ,x ,y))))
+```
+
+Six observations, with small noise, are provided for a in the range 1.0 to 3.5 (true law `T^2 = a^3`):
+
+```racket
+(define observations
+  '((1.0 . 1.02) (1.5 . 3.40) (2.0 . 7.95)
+    (2.5 . 15.70) (3.0 . 27.10) (3.5 . 42.80)))
+```
+
+Scoring combines fit and simplicity as before. The top-ranked candidate is exactly `(pow3 a)` with the lowest combined score, and the system then *verifies* the law on two held-out points (a = 4.0 and a = 4.5):
+
+```
+Top candidates (law, fit error, size, score):
+  T^2 = (pow3 a)         err=0.0248  size=2 score=0.2248
+  T^2 = (* a (pow2 a))   err=0.0248  size=4 score=0.4248
+  T^2 = (* 1 (pow3 a))   err=0.0248  size=4 score=0.4248
+  ...
+
+Discovered law: T^2 = (pow3 a)
+
+Verification on held-out a values (4.0, 4.5):
+  a=4.0 predicted T^2=64.0 actual 64.0
+  a=4.5 predicted T^2=91.125 actual 91.125
+```
+
+The discovered law is short, exact to within the simulated noise, and it generalizes to inputs outside the training range. This is a template used by modern equation-discovery systems such as AI Feynman and its successors: enumerate formulas in a physically motivated grammar, score by fit + parsimony, and verify on held-out data. When the grammar happens to match the true functional family, the system recovers a law that looks indistinguishable from one a human scientist might write down.
+
+## Running the Examples
+
+All four demonstrations run with stock Racket, no external packages:
+
+```bash
+cd source-code/08-program-synthesis-scientific-discovery
+racket 01-hypothesis-generation.rkt
+racket 02-data-efficient-learning.rkt
+racket 03-causal-reasoning.rkt
+racket 04-equation-discovery-kepler.rkt
+```
+
+Each prints a short trace of its search before the final answer, so you can see exactly which hypotheses were considered and why the winner won.
+
+## Wrap Up
+
+Scientific discovery is a good stress test for program synthesis: the data are noisy and scarce, the hypothesis space is large, and the answers must be interpretable enough for a domain expert to criticize or build on. The techniques in this chapter—parsimony-regularized search over a formal grammar, causal models with explicit interventions, and verification on held-out data—show how synthesis meets these constraints. The next part of the book turns to evaluation: how do we benchmark systems that claim to synthesize scientific knowledge, and how close are we to general-purpose synthesis-driven discovery?

@@ -1,1 +1,9 @@
-
+01-introduction-to-symbolic-reasoning.md
+02-program-synthesis-problem.md
+03-inductive-synthesis-pbe.md
+04-deductive-synthesis-constraints.md
+05-neurosymbolic-paradigm.md
+06-neurosymbolic-architectures.md
+07-generalization-skill-acquisition.md
+08-program-synthesis-scientific-discovery.md
+09-benchmarks-evaluation-agi.md
