@@ -2,9 +2,18 @@
 
 This directory contains example code and demonstrations for Chapter 3, covering:
 
-- **Enumerative Search**: Bottom-up and top-down program enumeration with pruning
-- **Version Space Algebras**: Compact representations of consistent hypothesis spaces
-- **Stochastic Search**: Genetic programming and random search over program spaces
-- **Programming by Example**: Concrete PBE implementations for string transformations and data manipulation
+- **Programming by Example**: `01-pbe-string-transform.rkt` - String transformation learning from examples  
+- **Version Space Algebras**: `02-version-space.rkt` - Compact representation of consistent hypotheses
+- **Stochastic Search**: `03-genetic-programming.rkt` - Population-based program evolution
+- **Flash Fill Style**: `04-flash-fill-demo.rkt` - Interactive-style data wrangling from examples
 
-These examples use Racket Scheme to illustrate how programs can be learned from examples through systematic and stochastic exploration of the program space.
+These examples use Racket Scheme to implement core PBE techniques for learning transformations from input-output examples.
+
+## Running the Examples
+
+```bash
+racket 01-pbe-string-transform.rkt
+racket 02-version-space.rkt
+racket 03-genetic-programming.rkt
+racket 04-flash-fill-demo.rkt
+```

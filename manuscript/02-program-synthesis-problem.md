@@ -2,35 +2,90 @@
 
 Programming by Example (PBE) represents one of the most intuitive and practical approaches to program synthesis. Instead of writing formal specifications or logical descriptions of desired behavior, users provide concrete input-output examples. The synthesis system must then infer a program that correctly transforms the given inputs to the desired outputs. This chapter explores the core techniques that make PBE work.
 
+All code examples for this chapter are in `source-code/02-program-synthesis-problem/`.
+
 ## Enumerative Search: Bottom-Up and Top-Down
 
 The most straightforward approach to PBE is to systematically generate and test candidate programs until finding one that satisfies all examples.
 
-- **Bottom-Up Search**: Start with simple expressions and combine them into more complex programs. Maintain a set of "plausible" subprograms and iteratively build larger programs by composing smaller ones.
-- **Top-Down Search**: Start with the goal (the desired output) and work backward, decomposing the problem into subproblems that must be solved.
+The example file `01-enumerative-search.rkt` demonstrates bottom-up enumeration:
 
-Enumerative search faces the fundamental challenge of combinatorial explosion. The space of possible programs grows rapidly with program size, making naive enumeration impractical for all but the simplest tasks. However, clever pruning, type-directed search, and domain-specific heuristics can make enumeration surprisingly effective.
+```racket
+(define (generate-programs max-size)
+  (if (= max-size 1)
+      (list 0 1 2 3 4 5)
+      (let ((base (list 0 1 2 3 4 5)))
+        (append base
+                (for*/list ((a (generate-programs (max 1 (- max-size 1))))
+                            (b (generate-programs (max 1 (- max-size 1))))
+                            (op '(+ *)))
+                  (list op a b))))))
+
+(define (bottom-up-search examples max-size)
+  (let ((candidates (generate-programs max-size)))
+    (findf (lambda (p) (matches-examples? p examples)) candidates)))
+```
+
+This approach faces the fundamental challenge of combinatorial explosion. The space of possible programs grows rapidly with program size, as shown by the example output:
+
+```
+Programs of size 1:  (0 1 2 3 4 5)
+Programs of size 2:  Sample: (0 1 2 3 4 5 (+ 0 0) (* 0 0) ...)
+Programs of size 3:  Count: 12174
+```
+
+Clever pruning, type-directed search, and domain-specific heuristics can make enumeration surprisingly effective for smaller domains.
 
 ## Version Space Algebras
 
-Version spaces provide a more structured way to represent the set of all programs consistent with the given examples. Rather than generating programs one by one, version space algebras maintain a compact representation of all consistent hypotheses.
+Version spaces provide a more structured way to represent the set of all programs consistent with the given examples. The example (`02-version-space-algebras.rkt`) demonstrates operations on these spaces:
 
-- **Version Space**: The subset of the hypothesis space (all possible programs) that is consistent with the training examples
-- **Algebras**: Operations like union, intersection, and join that allow composing version spaces
-- **Incremental Updates**: As more examples arrive, the version space shrinks, focusing search on increasingly plausible candidates
+```racket
+(define (vs-intersect vs1 vs2)
+  (filter (lambda (p) (member p vs2)) vs1))
 
-This technique is particularly powerful for domains with compositional structure, where complex programs are built from simpler components. Version space algebras can efficiently represent large sets of consistent programs without explicitly enumerating them.
+(define (add-example example vs)
+  (let ((input (car example))
+        (output (cadr example)))
+    (filter (lambda (p) (matches-example? p input output)) vs)))
+```
+
+The key idea is maintaining a compact representation of all hypotheses that are consistent with the training examples. As more examples arrive, the version space shrinks, focusing search on increasingly plausible candidates.
 
 ## Stochastic and Evolutionary Search
 
-When systematic search becomes intractable, stochastic methods offer an alternative. These approaches use randomness and population-based search to explore the program space.
+When systematic search becomes intractable, stochastic methods offer an alternative. The genetic programming example (`03-stochastic-search.rkt`) evolves programs through mutation, crossover, and selection:
 
-- **Genetic Programming**: Evolve a population of programs through mutation, crossover, and selection based on fitness
-- **Stochastic Local Search**: Randomly explore the neighborhood of candidate programs, accepting improvements and sometimes accepting worse solutions to escape local optima
-- **Metropolis-Hastings and MCMC**: Sample programs from a probability distribution over the program space
+```racket
+(define (fitness program examples)
+  (let ((total-error 0))
+    (for ((ex examples))
+      (set! total-error (+ total-error 
+                              (abs (- (eval-expr program '()) 
+                                     (cadr ex))))))
+    (- total-error)))
 
-Stochastic methods trade guarantees of completeness for the ability to explore vast program spaces. They often find acceptable solutions faster than exhaustive methods, though they may miss the "best" program.
+(define (mutate prog)
+  (cond
+    ((number? prog)
+     (random-ref '(0 1 2 3 4 5)))
+    ((list? prog)
+     (let ((pos (random 3)))
+       (list-set prog pos (random-ref '(+ * -)))))))
+```
+
+These methods trade guarantees of completeness for the ability to explore vast program spaces quickly.
 
 ---
 
-PBE has driven many practical successes in program synthesis, from Flash Fill in Excel to data wrangling tools. The next chapter explores complementary deductive approaches that leverage formal specifications and constraint solving.
+PBE has driven many practical successes in program synthesis. The next chapter explores complementary deductive approaches that leverage formal specifications and constraint solving.
+
+## Running the Examples
+
+```bash
+cd source-code/02-program-synthesis-problem
+racket 01-enumerative-search.rkt   # Bottom-up program enumeration
+racket 02-version-space-algebras.rkt # Version space operations
+racket 03-stochastic-search.rkt     # Genetic programming
+racket 04-problem-formulation.rkt   # Formal problem specification
+```

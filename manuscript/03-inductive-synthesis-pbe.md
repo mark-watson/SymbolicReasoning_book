@@ -1,55 +1,103 @@
-# Deductive Synthesis & Constraint-Based Methods
+# Inductive Synthesis & Programming by Example (PBE)
 
-While inductive synthesis infers programs from examples, deductive synthesis takes the opposite approach: it derives programs from formal specifications using logical inference. This chapter explores the powerful deductive and constraint-based techniques that have produced some of the most reliable and theoretically grounded synthesis systems.
+Programming by Example (PBE) represents one of the most intuitive and practical approaches to program synthesis. Instead of writing formal specifications or logical descriptions of desired behavior, users provide concrete input-output examples. The synthesis system must then infer a program that correctly transforms the given inputs to the desired outputs.
 
-## Deductive Synthesis using Theorem Proving
+All code examples for this chapter are in `source-code/03-inductive-synthesis-pbe/`.
 
-Deductive synthesis treats program synthesis as a theorem-proving task. Given a specification of the desired behavior, the goal is to construct a program that provably satisfies this specification.
+## The Program Synthesis Problem
 
-The process typically involves:
-1. **Specification**: Express the desired input-output relationship as a logical formula
-2. **Existential Proof**: Prove that a program exists satisfying the specification (constructive proof yields the program)
-3. **Program Extraction**: Extract the actual program from the proof
+Synthesis problems are formally defined by specifications that describe:
+- **Examples**: Input-output pairs demonstrating desired behavior  
+- **Grammar**: What operations and language constructs are allowed
+- **Verification**: How to check that a candidate program satisfies the specification
 
-This approach guarantees correctness by construction. If the theorem prover succeeds, the extracted program satisfies the specification exactly. However, theorem proving is computationally expensive and often requires human guidance for non-trivial problems.
+The file `04-problem-formulation.rkt` demonstrates this formal approach:
 
-Modern deductive synthesis systems use interactive theorem provers like Coq or Isabelle, leveraging tactics and decision procedures to automate portions of the proof while allowing human insight to guide the overall strategy.
+```racket
+(struct synthesis-problem
+  (name examples grammar verify metadata))
 
-## Constraint Solving for Synthesis (SMT, SAT)
+(define (make-problem name examples grammar verify (meta '()))
+  (synthesis-problem name examples grammar verify meta))
+```
 
-Constraint-based synthesis reduces the synthesis problem to finding a satisfying assignment to a set of logical constraints. This approach has become dominant due to the remarkable efficiency of modern SAT and SMT solvers.
+## Enumerative Search
 
-- **SAT Solvers**: Determine whether a Boolean formula has a satisfying assignment
-- **SMT Solvers**: Extend SAT with theories like arithmetic, arrays, and bit-vectors
+The most straightforward approach to PBE is to systematically generate and test candidate programs until finding one that satisfies all examples.
 
-The constraint-based approach works by:
-1. Encoding the synthesis problem as a logical formula
-2. Using the solver to find a model (satisfying assignment)
-3. Decoding the model into a program
+### Bottom-Up Enumeration
 
-This method elegantly separates the synthesis logic from the search machinery, allowing synthesis researchers to leverage decades of advances in constraint solving technology.
+The example `01-enumerative-search.rkt` demonstrates bottom-up program enumeration, starting with simple expressions and combining them:
 
-## Counter-Example Guided Inductive Synthesis (CEGIS)
+```racket
+(define (generate-programs max-size)
+  (if (= max-size 1)
+      (list 0 1 2 3 4 5)
+      (append base
+              (for*/list ((a (generate-programs (max 1 (- max-size 1))))
+                          (b (generate-programs (max 1 (- max-size 1))))
+                          (op '(+ *)))
+                (list op a b)))))
+```
 
-CEGIS combines the best of inductive and deductive synthesis in an iterative loop:
+This approach faces the challenge of combinatorial explosion—the space of possible programs grows rapidly with program size.
 
-1. **Generate**: Produce a candidate program that satisfies the current set of inputs
-2. **Verify**: Check if the candidate satisfies the full specification
-3. **Counterexample**: If verification fails, use the counterexample as a new input-output example
-4. **Repeat**: Continue until the candidate verifies or resources are exhausted
+## Version Space Algebras
 
-CEGIS is particularly effective because it uses verifiers to focus search on the most informative examples—the ones that actually constrain the solution space. This approach has powered many successful synthesizers, including those for bit-vector transformations and distributed protocols.
+Version spaces provide a compact representation of all programs consistent with the given examples. The file `02-version-space.rkt` demonstrates:
 
-## Syntax-Guided Synthesis (SyGuS)
+```racket
+(define (vs-update example old-vs)
+  (let ((input (car example))
+        (output (cadr example))
+        (candidates (vs-candidates old-vs)))
+    (let ((filtered
+           (filter (lambda (c) (predict-for-example c input output))
+                   candidates)))
+      (vs (vs-desc old-vs) filtered))))
+```
 
-Syntax-Guided Synthesis adds user-provided syntactic restrictions to the synthesis problem. The specification includes not just the semantic requirements (what the program should do) but also syntactic constraints (what form the program can take).
+As new examples arrive, the version space shrinks, focusing search on plausible candidates.
 
-- **Grammar-Based Constraints**: Limit the space of candidate programs using context-free grammars
-- **Templates**: Restrict programs to match certain structural patterns
-- **Sketching**: Provide partial programs with "holes" to fill
+## Stochastic and Evolutionary Search
 
-By constraining the search space syntactically, SyGuS makes synthesis tractable for complex domains. The approach recognizes that users often know more about the form of the solution than just its behavior, and that this knowledge should be exploited.
+When systematic search becomes intractable, stochastic methods use randomness and population-based search. The genetic programming example (`03-genetic-programming.rkt`) evolves programs through mutation and crossover:
+
+```racket
+(define (fitness program examples)
+  (let ((error 0))
+    (for ((ex examples))
+      (set! error (+ error 
+                     (abs (- (eval-expr program (hash 'x input)) 
+                            (cadr ex))))))
+    (- error)))
+
+(define (evolve population examples generations)
+  (let loop ((gen 0) (pop population))
+    ...))
+```
+
+Fitness evaluation drives selection toward better solutions.
+
+## Practical Applications
+
+PBE has driven many practical successes:
+- **Data Wrangling**: Excel's Flash Fill and related tools
+- **Code Repair**: Learning repair patterns from examples  
+- **Scientific Discovery**: Finding explanatory models from data
+
+The Flash Fill demo (`04-flash-fill-demo.rkt`) shows basic transformation learning, though sophisticated PBE systems require richer DSLs and search strategies for tasks like name formatting.
 
 ---
 
-Deductive and constraint-based methods provide the theoretical foundation for program synthesis with strong correctness guarantees. The next part of this book explores how these symbolic techniques combine with neural networks to create systems that can learn and reason together.
+PBE is a foundational technique for program synthesis. The next part of this book explores deductive and constraint-based methods that derive programs from formal specifications with correctness guarantees.
+
+## Running the Examples
+
+```bash
+cd source-code/03-inductive-synthesis-pbe
+racket 01-pbe-string-transform.rkt      # String transformation learning
+racket 02-version-space.rkt            # Version space operations  
+racket 03-genetic-programming.rkt       # Genetic programming
+racket 04-flash-fill-demo.rkt          # Flash Fill-style demo
+```
