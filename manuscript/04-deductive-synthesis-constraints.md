@@ -1,4 +1,4 @@
-# Deductive Synthesis & Constraint-Based Methods
+# Chapter 4: Deductive Synthesis & Constraint-Based Methods
 
 The previous chapter showed how programs can be induced from input-output examples alone. That approach is powerful, but inductive systems generalize from data without ever proving that the result is correct. Deductive synthesis takes the opposite stance: a program is *derived* from a formal specification in such a way that correctness is established by construction. Where inductive synthesis asks "which program fits these examples?", deductive synthesis asks "which program follows logically from this specification?"
 

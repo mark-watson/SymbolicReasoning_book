@@ -1,4 +1,4 @@
-# Benchmarks, Evaluation, and the Path to AGI
+# Chapter 9: Benchmarks, Evaluation, and the Path to AGI
 
 Previous chapters showed how to build synthesis systems that learn, reason, and compose. This chapter asks a different question: how do we know whether those systems are actually any good? Benchmarks and evaluation frameworks are the bridge between the research program of program synthesis and the broader ambition of artificial general intelligence (AGI). A synthesizer that solves one curated example is interesting; a synthesizer that solves a battery of tasks with a measurable generalization gap is interesting *and* trustworthy.
 

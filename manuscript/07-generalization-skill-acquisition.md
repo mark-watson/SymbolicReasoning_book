@@ -1,4 +1,4 @@
-# Generalization & Autonomous Skill Acquisition
+# Chapter 7: Generalization & Autonomous Skill Acquisition
 
 A synthesis system is truly useful only when it can go beyond the specific examples it was trained on. This chapter examines how to build systems that generalize systematically, reuse learned abstractions, adapt online at test time, and acquire skills autonomously. The code is in `source-code/07-generalization-skill-acquisition/` and is now explicit-`provide` modules with `(module+ main ...)`/`(module+ test ...)`; `skill-library` is a parameter so `require` is silent, and `synthesize-skill` no longer takes an unused `max-depth` argument.
 

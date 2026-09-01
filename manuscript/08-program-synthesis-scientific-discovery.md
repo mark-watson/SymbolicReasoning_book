@@ -1,4 +1,4 @@
-# Program Synthesis for Scientific Discovery
+# Chapter 8: Program Synthesis for Scientific Discovery
 
 Science advances through hypothesizing, testing, and refinement. Program synthesis automates each step: hypotheses are programs, tests check them against data, refinement re-searches where they fail. The code is in `source-code/08-program-synthesis-scientific-discovery/` and runs with stock Racket. Each file now has an explicit `provide`, uses `racket/match`, and keeps demos in `(module+ main ...)` with `raco test` checks; `clamp01` and `size` are shared from `utils/`.
 

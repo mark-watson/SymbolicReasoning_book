@@ -1,4 +1,4 @@
-# The Neurosymbolic Paradigm
+# Chapter 5: The Neurosymbolic Paradigm
 
 The previous chapter ended with a warning sign. Deductive synthesis gives beautiful guarantees, but constraint solving and theorem proving search exponentially large spaces. Purely inductive learning, by contrast, scales gracefully but learns statistical correlations without any built-in notion of correctness or compositionality. The neurosymbolic paradigm proposes to close this gap by combining the strengths of both approaches.
 

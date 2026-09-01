@@ -1,4 +1,4 @@
-# Inductive Synthesis & Programming by Example (PBE)
+# Chapter 3: Inductive Synthesis & Programming by Example (PBE)
 
 Programming by Example (PBE) represents one of the most intuitive approaches to synthesis: users give input-output pairs, the system infers a program. This chapter moves from the constant-only language of Chapter 2 to grammars with variables and shows three ways to search them—version spaces, evolutionary search, and FlashFill-style demonstration—using the same factored helpers as the rest of the book.
 

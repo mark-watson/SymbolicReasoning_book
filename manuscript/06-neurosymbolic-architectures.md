@@ -1,4 +1,4 @@
-# Neurosymbolic Architectures & Algorithms
+# Chapter 6: Neurosymbolic Architectures & Algorithms
 
 The previous chapter explored the neurosymbolic paradigm as a design pattern: neural nets for perception, symbolic engines for reasoning, and a smooth interface that connects them. This chapter tours four concrete architectures that realize that pattern, each with a working example written in Racket. These architectures—Logic Tensor Networks (LTN), Logical Neural Networks (LNN), NeurASP, and Differentiable Inductive Logic Programming (∂ILP)—share the same goal but differ in the trade-offs they make between expressivity, training stability, and interpretability.
 

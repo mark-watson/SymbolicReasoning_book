@@ -1,4 +1,4 @@
-# The Program Synthesis Problem
+# Chapter 2: The Program Synthesis Problem
 
 Program synthesis asks for an executable artifact from a declarative specification. Instead of writing the program directly, you describe what it should do—examples, a logical formula, a grammar plus a verifier—and the synthesizer searches for a program that satisfies that description. This chapter makes that problem precise and shows the minimal machinery that every later technique reuses: a language, a search procedure, a way to prune the hypothesis space, and a way to state the task formally.
 

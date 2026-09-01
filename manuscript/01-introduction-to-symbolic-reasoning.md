@@ -1,4 +1,4 @@
-# Introduction to Symbolic Reasoning
+# Chapter 1: Introduction to Symbolic Reasoning
 
 Symbolic reasoning forms the bedrock of classical artificial intelligence. Before statistical methods dominated the landscape, AI researchers built systems that manipulated explicit symbols according to formal rules. This chapter introduces the fundamental concepts that underpin symbolic AI and explains why these ideas remain essential for building systems capable of genuine reasoning.
 
