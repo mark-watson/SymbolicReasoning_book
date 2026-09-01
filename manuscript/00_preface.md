@@ -1,2 +1,24 @@
 # Preface
 
+Every programmer has felt this wish: show the machine a few examples of what you want, and let it write the code. Program synthesis makes that idea precise. You give a system examples, a specification, a grammar, or a proof obligation. It searches through candidate programs, tests each one, and returns something you can run.
+
+The returned artifact is the whole point. It is not a table of weights and not a nearest-neighbor guess. It is a program: short enough to read, executable on inputs you never supplied, and checkable against a formal specification. When the system in Chapter 8 rediscovers Kepler's third law from six noisy measurements, it returns a law, not a curve fit. A law holds everywhere. A curve fit holds where you sampled.
+
+This book builds the machinery behind that result, and it builds it with you, in code you can read in an afternoon and run in a second. Here is the plan:
+
+- Chapters 1 and 2 lay the foundation: logic, unification, inference, knowledge representation, and a precise statement of the synthesis problem.
+- Chapters 3 and 4 give you the two classical engines. Inductive synthesis learns programs from examples with enumeration, version spaces, and evolutionary search. Deductive synthesis derives programs from specifications with proof extraction, SAT and SMT constraints, CEGIS, and syntax-guided search.
+- Chapters 5 and 6 join the engines. You will see exactly why deep learning alone cannot extrapolate or compose, then build miniature versions of four real neurosymbolic architectures: Logic Tensor Networks, Logical Neural Networks, NeurASP, and differentiable ILP.
+- Chapter 7 attacks the central problem of generalization: systems that build libraries from their own discoveries, adapt at test time, and acquire new skills autonomously.
+- Chapter 8 points the machinery at science: hypothesis generation, data-efficient equation discovery, causal reasoning, and the Kepler case study.
+- Chapter 9 asks the question that keeps the field honest: how do we know a system generalizes rather than memorizes? You will build ARC-style and SCAN-style tests and a leaderboard that reports the generalization gap.
+
+Every example is a complete Racket program. The code runs on a stock installation with no external packages, and each program prints a trace of its own search, so you can watch hypotheses rise and fall rather than take results on faith. Racket earns its place here for a simple reason: a synthesizer treats programs as data, and Lisp descendants make that natural. A few dozen lines of Racket are enough to hold a real algorithm, all of it visible.
+
+The book asks little of you in advance. If you can write a recursive function, you can read every chapter. Students will find the classical algorithms explained by working code rather than by prose alone. Working programmers will find techniques with a track record in industry, from Flash Fill-style example programming to solver-based synthesis. Researchers will find that the small systems here contain the seeds of the large ones: every example in this book has a published relative that runs a thousand times faster and a million times larger.
+
+Why this subject, and why now? Deep learning gave machines perception. That achievement is real, and this book does not minimize it. But perception is one half of intelligence. The other half is the old symbolic dream: learn a rule from two examples, state it exactly, apply it correctly on the hundredth case, and compose it with everything you already know. A child does this. Benchmarks such as ARC exist because our best machines still struggle with it, and the systems that close that gap will likely need both halves: neural networks to perceive a noisy world and symbolic engines to reason about what they perceive.
+
+That gap is also the opportunity. The techniques in this book fit in your head. The open problems are concrete: better abstractions, better search, better ways to let gradients flow through logic. You now hold the tools to work on them, one small runnable program at a time.
+
+Run the examples. Change a grammar and watch a law fail to appear, then fix it and watch it emerge. Reading about synthesis is useful; running it is convincing.

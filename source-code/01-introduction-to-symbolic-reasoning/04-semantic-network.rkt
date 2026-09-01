@@ -1,113 +1,162 @@
 #lang racket
 
 ;;; Simple Semantic Network Representation
-;;; Nodes represent concepts, edges represent relationships
+;;; Nodes represent concepts, edges represent relationships stored as triples
 
-(provide (all-defined-out))
+(provide triple
+         triple-subj triple-pred triple-obj
+         current-network
+         add-triple!
+         clear-network!
+         query
+         find-triples
+         describe
+         find-all
+         isa-closure
+         isa-closure-set
+         inherits?)
 
-;; Semantic network is a list of triples: (subject predicate object)
-(define %network '())
+(require racket/set)
+
+(struct triple (subj pred obj) #:transparent)
+
+;; Parameterized network so require has no side effect
+(define current-network (make-parameter '()))
 
 (define (add-triple! subj pred obj)
-  (set! %network (cons (list subj pred obj) %network)))
+  (current-network (cons (triple subj pred obj) (current-network))))
 
 (define (clear-network!)
-  (set! %network '()))
+  (current-network '()))
 
-;; Query the network
+;; Unified find with optional wildcards (#f means wildcard)
+(define (find-triples #:subj [subj #f] #:pred [pred #f] #:obj [obj #f])
+  (for/list ([t (current-network)]
+             #:when (and (or (not subj) (eq? (triple-subj t) subj))
+                         (or (not pred) (eq? (triple-pred t) pred))
+                         (or (not obj)  (eq? (triple-obj t) obj))))
+    t))
+
+;; Query with exact or wildcard (#f = wildcard). Returns #f if no match.
 (define (query subj pred obj)
-  (let ((results '()))
-    (for ((triple %network))
-      (let ((s (car triple))
-            (p (cadr triple))
-            (o (caddr triple)))
-        (when (and (eq? subj s) (eq? pred p) (eq? obj o))
-          (set! results (cons triple results)))))
-    (if (null? results) #f results)))
+  (define s (if (eq? subj #f) #f subj))
+  (define p (if (eq? pred #f) #f pred))
+  (define o (if (eq? obj #f) #f obj))
+  (let ([res (find-triples #:subj s #:pred p #:obj o)])
+    (if (null? res) #f res)))
 
 ;; Find all properties of an object
 (define (describe obj)
-  (let ((results '()))
-    (for ((triple %network))
-      (let ((s (car triple))
-            (p (cadr triple))
-            (o (caddr triple)))
-        (when (eq? s obj)
-          (set! results (cons (list p o) results)))))
-    results))
+  (for/list ([t (find-triples #:subj obj)])
+    (list (triple-pred t) (triple-obj t))))
 
-;; Find all objects matching a pattern
+;; Find all objects matching (subj pred ?)
 (define (find-all subj pred)
-  (let ((results '()))
-    (for ((triple %network))
-      (let ((s (car triple))
-            (p (cadr triple))
-            (o (caddr triple)))
-        (when (and (eq? subj s) (eq? pred p))
-          (set! results (cons o results)))))
-    results))  ; Return the accumulated results
+  (for/list ([t (find-triples #:subj subj #:pred pred)])
+    (triple-obj t)))
 
-;; Transitive closure of isa relation
+;; Proper transitive closure with visited set, handles diamonds and cycles
+(define (isa-closure-set start)
+  (let loop ([frontier (list start)] [seen (set)])
+    (if (null? frontier)
+        seen
+        (let* ([node (car frontier)]
+               [rest (cdr frontier)]
+               [parents (find-all node 'isa)]
+               [new-pars (filter-not (lambda (p) (set-member? seen p)) parents)])
+          (loop (append rest new-pars) (set-add seen node))))))
+
 (define (isa-closure obj acc)
-  (let ((parents (find-all obj 'isa)))
-    (if (null? parents)
-        acc
-        (foldl isa-closure (cons (car parents) acc) parents))))
+  ;; Legacy signature: (isa-closure obj acc) returns ancestors appended to acc
+  ;; New impl delegates to set version
+  (define ancestors (set->list (set-remove (isa-closure-set obj) obj)))
+  (append ancestors acc))
 
-;; Example: Building a knowledge network
-(displayln "=== Semantic Network Example ===")
-(clear-network!)
+;; Check if obj inherits property (pred -> val) via isa chain
+(define (inherits? obj pred val)
+  (for/or ([ancestor (set->list (isa-closure-set obj))])
+    (member val (find-all ancestor pred))))
 
-;; Animal taxonomy
-(add-triple! 'mammal 'isa 'animal)
-(add-triple! 'dog 'isa 'mammal)
-(add-triple! 'cat 'isa 'mammal)
-(add-triple! 'bird 'isa 'animal)
-(add-triple! 'sparrow 'isa 'bird)
+(module+ main
+  (displayln "=== Semantic Network Example ===")
+  (clear-network!)
 
-;; Properties
-(add-triple! 'mammal 'has 'fur)
-(add-triple! 'bird 'has 'feathers)
-(add-triple! 'dog 'sound 'bark)
-(add-triple! 'cat 'sound 'meow)
-(add-triple! 'sparrow 'sound 'chirp)
+  ;; Animal taxonomy
+  (add-triple! 'mammal 'isa 'animal)
+  (add-triple! 'dog 'isa 'mammal)
+  (add-triple! 'cat 'isa 'mammal)
+  (add-triple! 'bird 'isa 'animal)
+  (add-triple! 'sparrow 'isa 'bird)
 
-;; Relationships
-(add-triple! 'dog 'eats 'meat)
-(add-triple! 'cat 'eats 'meat)
-(add-triple! 'sparrow 'eats 'seeds)
+  ;; Properties
+  (add-triple! 'mammal 'has 'fur)
+  (add-triple! 'bird 'has 'feathers)
+  (add-triple! 'dog 'sound 'bark)
+  (add-triple! 'cat 'sound 'meow)
+  (add-triple! 'sparrow 'sound 'chirp)
 
-(displayln "")
-(displayln "What is dog's parent?")
-(displayln (find-all 'dog 'isa))
+  ;; Relationships
+  (add-triple! 'dog 'eats 'meat)
+  (add-triple! 'cat 'eats 'meat)
+  (add-triple! 'sparrow 'eats 'seeds)
 
-(displayln "")
-(displayln "ISA chain from dog to top:")
-(let ((closure (isa-closure 'dog '())))
-  (for ((c closure))
-    (display "  ")
-    (displayln c)))
+  (displayln "")
+  (displayln "What is dog's parent?")
+  (displayln (find-all 'dog 'isa))
 
-(displayln "")
-(displayln "Describe dog:")
-(let ((desc (describe 'dog)))
-  (for ((d desc))
-    (display "  ")
-    (display (car d))
-    (display ": ")
-    (displayln (cadr d))))
+  (displayln "")
+  (displayln "ISA chain from dog to top:")
+  (for ([c (isa-closure 'dog '())])
+    (display "  ") (displayln c))
 
-(displayln "")
-(displayln "Does dog have fur (inherited from mammal)?")
-(let ((mammal-props (describe 'mammal)))
-  (if (memq 'fur (map cadr mammal-props))
+  (displayln "")
+  (displayln "ISA ancestors (set, includes self):")
+  (displayln (sort (set->list (isa-closure-set 'dog)) symbol<?))
+
+  (displayln "")
+  (displayln "Describe dog:")
+  (for ([d (describe 'dog)])
+    (display "  ") (display (car d)) (display ": ") (displayln (cadr d)))
+
+  (displayln "")
+  (displayln "Does dog have fur (inherited from mammal)?")
+  (if (inherits? 'dog 'has 'fur)
       (displayln "  Yes (inherits from mammal)")
-      (displayln "  No")))
+      (displayln "  No"))
 
-(displayln "")
-(displayln "What does sparrow eat?")
-(displayln (find-all 'sparrow 'eats))
+  (displayln "")
+  (displayln "What does sparrow eat?")
+  (displayln (find-all 'sparrow 'eats))
 
-(displayln "")
-(displayln "What sound does a cat make?")
-(displayln (find-all 'cat 'sound))
+  (displayln "")
+  (displayln "What sound does a cat make?")
+  (displayln (find-all 'cat 'sound))
+
+  (displayln "")
+  (displayln "Wildcard query: all isa triples")
+  (displayln (query #f 'isa #f)))
+
+(module+ test
+  (require rackunit)
+  (clear-network!)
+  (add-triple! 'mammal 'isa 'animal)
+  (add-triple! 'dog 'isa 'mammal)
+  (add-triple! 'mammal 'has 'fur)
+  (check-equal? (find-all 'dog 'isa) '(mammal))
+  (check-not-false (member 'animal (isa-closure 'dog '())))
+  (check-not-false (member 'mammal (isa-closure 'dog '())))
+  (check-not-false (inherits? 'dog 'has 'fur))
+  (check-false (inherits? 'sparrow 'has 'fur))
+  (check-not-false (query 'dog 'isa 'mammal))
+  (check-not-false (query #f 'isa #f))
+  ;; Diamond / cycle safety
+  (clear-network!)
+  (add-triple! 'a 'isa 'b)
+  (add-triple! 'a 'isa 'c)
+  (add-triple! 'b 'isa 'd)
+  (add-triple! 'c 'isa 'd)
+  (check-equal? (set-count (isa-closure-set 'a)) 4) ; a,b,c,d
+  (clear-network!)
+  (add-triple! 'x 'isa 'y)
+  (add-triple! 'y 'isa 'x)
+  (check-equal? (set-count (isa-closure-set 'x)) 2))

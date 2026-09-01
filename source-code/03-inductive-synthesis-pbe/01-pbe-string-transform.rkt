@@ -1,18 +1,20 @@
 #lang racket
 
 ;;; Programming by Example: String Transformations
-;;; Demonstrates learning string manipulations from input-output examples
 
-(provide (all-defined-out))
+(require racket/match)
+(require "../utils/string.rkt")
 
-;; Helper function
-(define (string-reverse s)
-  (list->string (reverse (string->list s))))
+(provide string-op
+         string-op-name
+         string-op-func
+         +operations+
+         eval-string-expr
+         apply-operation
+         learn-transform)
 
-;; Simple string DSL with basic operations
 (struct string-op (name func) #:transparent)
 
-;; Available operations in our DSL
 (define +operations+
   (list
    (string-op "reverse" string-reverse)
@@ -20,80 +22,80 @@
    (string-op "to-lower" string-downcase)
    (string-op "trim" string-trim)))
 
-;; Evaluate an expression with input
+;; Evaluate an expression with input; supports concat, take, drop, substring
 (define (eval-string-expr expr input)
-  (cond
-    ((string? expr) expr)
-    ((eq? expr 'input) input)
-    ((and (pair? expr) (> (length expr) 0))
-     (let ((op (car expr))
-           (args (map (lambda (a) (eval-string-expr a input)) (cdr expr))))
-       (case op
-         ((concat) (apply string-append args))
-         ((substring) (apply substring args))
-         ((take) (substring (car args) 0 (cadr args)))
-         ((drop) (substring (car args) (cadr args)))
-         (else (error "Unknown op" op)))))
-    (else (error "Invalid expression" expr))))
+  (match expr
+    [(? string? s) s]
+    ['input input]
+    [`(concat ,args ...) (apply string-append (map (lambda (a) (eval-string-expr a input)) args))]
+    [`(substring ,s ,start ,end) (substring (eval-string-expr s input) start end)]
+    [`(substring ,s ,start) (substring (eval-string-expr s input) start)]
+    [`(take ,s ,n) (substring (eval-string-expr s input) 0 n)]
+    [`(drop ,s ,n) (substring (eval-string-expr s input) n)]
+    [`(,op ,args ...) (error 'eval-string-expr "unknown op ~a" op)]
+    [_ (raise-argument-error 'eval-string-expr "string expr" expr)]))
 
-;; Find operation by name and apply
-(define (apply-operation op-name input)
-  (let ((op (findf (lambda (o) (equal? (string-op-name o) op-name)) 
-                   +operations+)))
-    (if op ((string-op-func op) input) input)))
+(define (apply-operation op-struct input)
+  (unless (string-op? op-struct)
+    (raise-argument-error 'apply-operation "string-op?" op-struct))
+  ((string-op-func op-struct) input))
 
-;; Learn transformations from examples
+(define (find-op-by-name name)
+  (findf (lambda (o) (equal? (string-op-name o) name)) +operations+))
+
+;; Learn a single-op transformation that fits all examples
+;; Returns the string-op struct or #f with an explanatory message in main
 (define (learn-transform examples)
-  (for/or ((op +operations+))
-    ;; Check if this operation works for ALL examples
-    (if (for/and ((ex examples))
-          (equal? ((string-op-func op) (car ex)) (cadr ex)))
-        op
-        #f)))
+  (for/or ([op +operations+])
+    (and (for/and ([ex examples])
+           (equal? ((string-op-func op) (car ex)) (cadr ex)))
+         op)))
 
-;; Example: Name formatting tasks
-(displayln "=== Programming by Example: String Transformations ===")
+(module+ main
+  (displayln "=== Programming by Example: String Transformations ===")
 
-;; Example 1: "john smith" -> "smith, john"
-(define examples-1
-  '(("john smith" "smith, john")
-    ("mary jane" "jane, mary")))
+  (define examples-1
+    '(("john smith" "smith, john")
+      ("mary jane" "jane, mary")))
 
-(displayln "Examples for name formatting:")
-(for ((ex examples-1))
-  (display "  \"") 
-  (display (car ex))
-  (display "\" -> \"")
-  (display (cadr ex))
-  (displayln "\""))
+  (displayln "Examples for name formatting:")
+  (for ([ex examples-1])
+    (displayln (format "  \"~a\" -> \"~a\"" (car ex) (cadr ex))))
 
-;; Learned transformation
-(define learned-1 (learn-transform examples-1))
-(displayln "")
-(if learned-1
-    (begin
-      (display "Learned transformation: ")
-      (displayln learned-1)
-      (display "Test on \"alice bob\": ")
-      (displayln (apply-operation learned-1 "alice bob")))
-    (displayln "No simple transformation found"))
+  (define learned-1 (learn-transform examples-1))
+  (displayln "")
+  (if learned-1
+      (begin
+        (displayln (format "Learned transformation: ~a" (string-op-name learned-1)))
+        (displayln (format "Test on \"alice bob\": ~a" (apply-operation learned-1 "alice bob"))))
+      (begin
+        (displayln "No single primitive fits name formatting.")
+        (displayln "This DSL has no split/concat on space; a richer DSL would")
+        (displayln "learn (concat (second (split input \" \")) \", \" (first ...)).")))
 
-;; Example 2: Case conversion
-(define examples-2
-  '(("Hello World" "hello_world")
-    ("Foo Bar" "foo_bar")))
+  (define examples-2
+    '(("Hello World" "hello_world")
+      ("Foo Bar" "foo_bar")))
 
-(displayln "")
-(displayln "Examples for snake_case:")
-(for ((ex examples-2))
-  (display "  \"") 
-  (display (car ex))
-  (display "\" -> \"")
-  (display (cadr ex))
-  (displayln "\""))
+  (displayln "")
+  (displayln "Examples for snake_case (also not in single-op DSL):")
+  (for ([ex examples-2])
+    (displayln (format "  \"~a\" -> \"~a\"" (car ex) (cadr ex))))
+  (displayln (format "learn-transform result: ~a" (learn-transform examples-2)))
 
-;; Generate candidate programs
-(displayln "")
-(displayln "Candidate programs:")
-(displayln "  - reverse, to-upper, to-lower, trim")
-(displayln "  - concat (op1 input) (op2 input)")
+  (displayln "")
+  (displayln "Candidate programs in richer DSL:")
+  (displayln "  - reverse, to-upper, to-lower, trim")
+  (displayln "  - concat, substring, take, drop over input"))
+
+(module+ test
+  (require rackunit)
+  (check-equal? (eval-string-expr '(concat "a" "b") "x") "ab")
+  (check-equal? (eval-string-expr '(take "hello" 2) "ignored") "he")
+  (check-equal? (eval-string-expr '(drop "hello" 2) "ignored") "llo")
+  (check-equal? (eval-string-expr "lit" "input") "lit")
+  (check-equal? (eval-string-expr 'input "hi") "hi")
+  (define rev (find-op-by-name "reverse"))
+  (check-equal? (apply-operation rev "hello") "olleh")
+  (check-false (learn-transform '(("john smith" "smith, john"))))
+  (check-equal? (string-op-name (learn-transform '(("HELLO" "hello")))) "to-lower"))

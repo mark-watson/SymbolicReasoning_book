@@ -1,142 +1,135 @@
 #lang racket
 
-;;; Genetic Programming for Program Synthesis
-;;; Evolves programs through mutation, crossover, and selection
+;;; Stochastic Search / Genetic Programming for Program Synthesis
+;;; Evolves programs through subtree mutation and crossover
 
-(provide (all-defined-out))
+(require racket/match)
 
-;; Random number generation
+(provide eval-expr
+         fitness
+         random-program
+         random-ref
+         mutate
+         crossover
+         gp)
+
 (random-seed 42)
 
-;; Language: same as before
+;; Language: (+ * -) over constants
 (define (eval-expr expr env)
-  (cond
-    ((number? expr) expr)
-    ((and (list? expr) (= (length expr) 3))
-     (let ((op (car expr))
-           (a (eval-expr (cadr expr) env))
-           (b (eval-expr (caddr expr) env)))
-       (case op
-         ((+) (+ a b))
-         ((*) (* a b))
-         ((-) (- a b))
-         (else (error "Unknown operator" op)))))
-    (else (error "Invalid expression" expr))))
+  (match expr
+    [(? number? n) n]
+    [`(+ ,a ,b) (+ (eval-expr a env) (eval-expr b env))]
+    [`(* ,a ,b) (* (eval-expr a env) (eval-expr b env))]
+    [`(- ,a ,b) (- (eval-expr a env) (eval-expr b env))]
+    [_ (raise-argument-error 'eval-expr "arith expr" expr)]))
 
-;; Fitness function: negative of total error
+;; Fitness: negative total error. For constant language, env is ignored.
 (define (fitness program examples)
-  (let ((total-error 0))
-    (for ((ex examples))
-      (let ((input (car ex))
-            (output (cadr ex))
-            (pred (eval-expr program '())))
-        (set! total-error (+ total-error (abs (- pred output))))))
-    (- total-error)))  ;; Negative error = higher fitness
+  (define total-error
+    (for/sum ([ex examples])
+      (match-define (list input output) ex)
+      (define pred (eval-expr program '()))
+      (abs (- pred output))))
+  (- total-error))
 
-;; Helper: reference a random element (non-deterministic)
 (define (random-ref lst)
   (list-ref lst (random (length lst))))
 
-;; Generate random program of given depth
 (define (random-program depth)
   (if (= depth 0)
       (random-ref '(0 1 2 3 4 5))
-      (let ((op (random-ref '(+ * -)))
-            (left (random-program (- depth 1)))
-            (right (random-program (- depth 1))))
+      (let ([op (random-ref '(+ * -))]
+            [left (random-program (- depth 1))]
+            [right (random-program (- depth 1))])
         (list op left right))))
 
-;; Mutate a program: randomly replace a subtree
+;; Collect all subtrees of prog (including prog itself)
+(define (subtrees prog)
+  (cons prog
+        (if (list? prog)
+            (append (subtrees (cadr prog)) (subtrees (caddr prog)))
+            '())))
+
+;; Replace a random subtree of prog with new-sub
+(define (replace-random-subtree prog new-sub)
+  (if (or (number? prog) (= (random 3) 0))
+      new-sub
+      (let ([pos (random 2)])
+        (if (= pos 0)
+            (list (car prog) (replace-random-subtree (cadr prog) new-sub) (caddr prog))
+            (list (car prog) (cadr prog) (replace-random-subtree (caddr prog) new-sub))))))
+
+;; Mutate by replacing a random subtree with a fresh random program
 (define (mutate prog)
-  (cond
-    ((number? prog)
-     (random-ref '(0 1 2 3 4 5)))  ;; Replace with another constant
-    ((list? prog)
-     (let ((pos (random 3))
-           (new-op (random-ref '(+ * -))))
-       (list-set prog pos new-op)))))
+  (replace-random-subtree prog (random-program 1)))
 
-;; Crossover: swap subtrees between programs
+;; Crossover: swap a random subtree of p1 with a random subtree of p2
 (define (crossover p1 p2)
-  (if (and (list? p1) (list? p2) (= (length p1) 3) (= (length p2) 3))
-      (let ((i (random 3))
-            (j (random 3)))
-        (list (list-ref p1 i)
-              (list-ref p2 j)
-              (list-ref p1 (- 2 i))))
-      (list p1 p2)))
+  (cond
+    [(and (list? p1) (list? p2))
+     (define sub2 (random-ref (subtrees p2)))
+     (replace-random-subtree p1 sub2)]
+    [else (random-ref (list p1 p2))]))
 
-;; Genetic Programming main loop
+;; Genetic Programming loop
 (define (gp population examples generations)
-  (let loop ((gen 0) (pop population))
+  (let loop ([gen 0] [pop population])
     (if (>= gen generations)
-        (car (sort pop > #:key (lambda (p) (fitness p examples))))
-        (let* ((scored (map (lambda (p) (cons (fitness p examples) p)) pop))
-               (sorted (sort scored > #:key car))
-               (best-fitness (caar sorted))
-               (best-prog (cdar sorted)))
-          
-          (display "Generation ")
-          (display gen)
-          (display ": Best fitness = ")
-          (display (car best-fitness))
-          (displayln "")
-          
+        (argmax (lambda (p) (fitness p examples)) pop)
+        (let* ([scored (sort pop > #:key (lambda (p) (fitness p examples)))]
+               [best (car scored)]
+               [best-fitness (fitness best examples)])
+          (displayln (format "Generation ~a: Best fitness = ~a (prog ~a)" gen best-fitness best))
           (if (= best-fitness 0)
-              (begin
-                (displayln "Perfect solution found:")
-                best-prog)
-              (let* ((parents (take sorted 10))
-                     (elites (map cdr parents))
-                     (offspring
-                      (apply append
-                             (for/list ((_ (in-range 10)))
-                               (let* ((p1 (random-ref elites))
-                                      (p2 (random-ref elites))
-                                      (child (crossover p1 p2)))
-                                 (list (mutate child)))))))
+              best
+              (let* ([parents (take scored (min 10 (length scored)))]
+                     [elites (map (lambda (x) x) parents)]
+                     [offspring
+                      (for/list ([_ (in-range 10)])
+                        (define p1 (random-ref elites))
+                        (define p2 (random-ref elites))
+                        (mutate (crossover p1 p2)))])
                 (loop (+ gen 1) (append elites offspring))))))))
 
-;; Helper for returning from loop
-(define (return v) (error "Return not implemented" v))
+(module+ main
+  (displayln "=== Genetic Programming Example ===")
 
-;; Test
-(displayln "=== Genetic Programming Example ===")
+  (define examples '((0 0) (1 2) (2 4) (3 6)))
 
-(define examples
-  '((0 0)     ; f(0) = 0
-    (1 2)     ; f(1) = 2  
-    (2 4)     ; f(2) = 4
-    (3 6)))   ; f(3) = 6
+  (displayln "Target examples:")
+  (displayln examples)
+  (displayln "")
+  (displayln "Note: constant-only language cannot represent 2*x, so fitness")
+  (displayln "never reaches 0. This isolates mutation/crossover mechanics.")
+  (displayln "")
 
-(displayln "Target examples:")
-(displayln examples)
-(displayln "")
+  (define population
+    (for/list ([_ (in-range 20)]) (random-program 2)))
 
-;; Create initial population
-(define population
-  (for/list ((_ (in-range 20)))
-    (random-program 2)))
+  (displayln "Initial population of 20 random programs (sample 5):")
+  (displayln (take population 5))
+  (displayln "")
 
-(displayln "Initial population of 20 random programs:")
-(display "  ")
-(displayln (take population 5))
-(displayln "")
+  (displayln "Running GP for 3 generations:")
+  (define best (gp population examples 3))
+  (displayln (format "Best after 3 gens: ~a fitness ~a" best (fitness best examples)))
+  (displayln "")
 
-;; Run GP (simplified version due to complexity)
-(displayln "Running Genetic Programming...")
-(displayln "(Note: This is a simplified version without full evolution)")
+  (define p1 (random-program 1))
+  (define p2 (random-program 1))
+  (displayln (format "Program 1: ~a" p1))
+  (displayln (format "Program 2: ~a" p2))
+  (displayln (format "Mutate p1: ~a" (mutate p1)))
+  (displayln (format "Crossover p1 x p2: ~a" (crossover p1 p2)))
+  (displayln "Mutation now replaces a random subtree, not a random position.")
+  (displayln "Crossover swaps a random subtree between parents."))
 
-;; Just demonstrate mutation and crossover
-(define p1 (random-program 1))
-(define p2 (random-program 1))
-(displayln "Program 1:")
-(displayln p1)
-(displayln "Program 2:")
-(displayln p2)
-(displayln "Mutation operates on programs by randomly changing operators or constants:")
-(displayln "  Original p1 = (op arg1 arg2)")
-(displayln "  Mutated p1 = (new-op arg1 arg2) or (op new-arg arg2) etc.")
-(displayln "")
-(displayln "Crossover combines parts of two programs:")
-(displayln "  Crossover swaps subtrees to create offspring")
+(module+ test
+  (require rackunit)
+  (check-equal? (eval-expr '(+ 1 2) '()) 3)
+  (check-true (or (number? (mutate '(+ 1 2))) (list? (mutate '(+ 1 2)))))
+  (check-true (number? (fitness '(+ 1 1) '((0 2)))))
+  ;; subtree crossover preserves number-or-list shape
+  (check-true (or (number? (crossover '(+ 1 2) '(* 3 4))) (list? (crossover '(+ 1 2) '(* 3 4)))))
+  (check-equal? (fitness 2 '((0 2) (1 2))) 0))

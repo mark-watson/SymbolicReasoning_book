@@ -1,84 +1,88 @@
 #lang racket
 
 ;;; Version Space Algebra for Program Synthesis
-;;; Maintains compact representation of consistent hypotheses
 
-(provide (all-defined-out))
+(require "../utils/string.rkt")
 
-;; Version space representation
+(provide vs
+         vs-desc
+         vs-candidates
+         make-version-space
+         vs-update
+         predict-for-example
+         apply-operation
+         vs-union
+         vs-intersect)
+
 (struct vs (desc candidates) #:transparent)
 
-;; Create a version space from candidates
 (define (make-version-space desc candidates)
   (vs desc candidates))
 
-;; Update version space with new example
 (define (vs-update example old-vs)
-  (let ((input (car example))
-        (output (cadr example))
-        (candidates (vs-candidates old-vs)))
-    (let ((filtered
-           (filter (lambda (c) (predict-for-example c input output))
-                   candidates)))
-      (vs (vs-desc old-vs) filtered))))
+  (match-define (list input output) example)
+  (define candidates (vs-candidates old-vs))
+  (define filtered
+    (filter (lambda (c) (predict-for-example c input output)) candidates))
+  (vs (vs-desc old-vs) filtered))
 
-;; Check if candidate predicts the example
 (define (predict-for-example candidate input output)
   (equal? (apply-operation candidate input) output))
 
-;; Helper function
-(define (string-reverse s)
-  (list->string (reverse (string->list s))))
-
-;; Apply a string operation
 (define (apply-operation op input)
   (case op
-    ((identity) input)
-    ((reverse) (string-reverse input))
-    ((to-upper) (string-upcase input))
-    ((to-lower) (string-downcase input))
-    (else input)))
+    [(identity) input]
+    [(reverse) (string-reverse input)]
+    [(to-upper) (string-upcase input)]
+    [(to-lower) (string-downcase input)]
+    [else input]))
 
-;; Combine version spaces
 (define (vs-union vs1 vs2)
-  (vs (vs-desc vs1) 
-      (remove-duplicates 
-       (append (vs-candidates vs1) (vs-candidates vs2)))))
+  (vs (vs-desc vs1)
+      (remove-duplicates (append (vs-candidates vs1) (vs-candidates vs2)))))
 
 (define (vs-intersect vs1 vs2)
   (vs (vs-desc vs1)
       (filter (lambda (c) (member c (vs-candidates vs2)))
               (vs-candidates vs1))))
 
-;; Example usage
-(displayln "=== Version Space Example ===")
+(module+ main
+  (displayln "=== Version Space Example ===")
 
-;; Define hypothesis space
-(define op-space (make-version-space "String operations" 
-                                  '(identity reverse to-upper to-lower)))
+  (define op-space (make-version-space "String operations"
+                                       '(identity reverse to-upper to-lower)))
 
-(display "Initial candidates: ")
-(displayln (length (vs-candidates op-space)))
+  (displayln (format "Initial candidates: ~a" (length (vs-candidates op-space))))
 
-;; Example 1: reverse behavior
-(define ex1 '("hello" "olleh"))
-(define vs-after-ex1 (vs-update ex1 op-space))
+  (define ex1 '("hello" "olleh"))
+  (define vs-after-ex1 (vs-update ex1 op-space))
 
-(display "After updating with '\"hello\" -> \"olleh\"': ")
-(displayln (length (vs-candidates vs-after-ex1)))
-(display "Candidates: ")
-(displayln (vs-candidates vs-after-ex1))
+  (displayln (format "After 'hello' -> 'olleh': ~a candidates ~a"
+                     (length (vs-candidates vs-after-ex1))
+                     (vs-candidates vs-after-ex1)))
 
-;; Example 2: case conversion
-(define ex2 '("HELLO" "hello"))
-(define vs-after-ex2 (vs-update ex2 op-space))
+  (define ex2 '("HELLO" "hello"))
+  (define vs-after-ex2 (vs-update ex2 op-space))
 
-(display "After updating with '\"HELLO\" -> \"hello\"': ")
-(displayln (length (vs-candidates vs-after-ex2)))
-(display "Candidates: ")
-(displayln (vs-candidates vs-after-ex2))
+  (displayln (format "After 'HELLO' -> 'hello': ~a candidates ~a"
+                     (length (vs-candidates vs-after-ex2))
+                     (vs-candidates vs-after-ex2)))
 
-;; Composing spaces
-(define combined (vs-intersect vs-after-ex1 vs-after-ex2))
-(display "Intersection of two examples: ")
-(displayln (vs-candidates combined))
+  (define combined (vs-intersect vs-after-ex1 vs-after-ex2))
+  (displayln (format "Intersection of the two filtered spaces: ~a" (vs-candidates combined)))
+  (displayln "No single primitive is both reverse and to-lower.")
+
+  (define sequential (vs-update ex2 vs-after-ex1))
+  (displayln (format "Sequential filter (hello->olleh then HELLO->hello): ~a"
+                     (vs-candidates sequential))))
+
+(module+ test
+  (require rackunit)
+  (define op-space (make-version-space "ops" '(identity reverse to-upper to-lower)))
+  (check-equal? (length (vs-candidates (vs-update '("hello" "olleh") op-space))) 1)
+  (check-equal? (vs-candidates (vs-update '("hello" "olleh") op-space)) '(reverse))
+  (check-equal? (vs-candidates (vs-update '("HELLO" "hello") op-space)) '(to-lower))
+  (define a (vs-update '("hello" "olleh") op-space))
+  (define b (vs-update '("HELLO" "hello") op-space))
+  (check-equal? (vs-candidates (vs-intersect a b)) '())
+  (check-equal? (length (vs-candidates (vs-union a b))) 2))

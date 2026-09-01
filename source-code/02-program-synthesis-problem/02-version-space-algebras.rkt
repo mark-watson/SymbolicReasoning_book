@@ -3,12 +3,16 @@
 ;;; Version Space Algebras
 ;;; Compact representation of consistent hypothesis spaces
 
-(provide (all-defined-out))
-
-;; A version space is the set of all hypotheses consistent with examples
-;; We represent it as a union of simpler spaces
-
-;; Basic version space operations
+(provide universal-space
+         empty-space
+         singleton
+         vs-intersect
+         vs-union
+         in-space?
+         add-example
+         matches-example?
+         generate-candidates
+         compose-vs)
 
 ;; The universal space (all possible programs)
 (define universal-space 'universal)
@@ -22,53 +26,53 @@
 ;; Intersection: programs in both spaces
 (define (vs-intersect vs1 vs2)
   (cond
-    ((eq? vs1 empty-space) empty-space)
-    ((eq? vs2 empty-space) empty-space)
-    ((eq? vs1 universal-space) vs2)
-    ((eq? vs2 universal-space) vs1)
-    ((and (pair? vs1) (pair? vs2))
-     ;; Simplified intersection for demonstration
-     (filter (lambda (p) (member p vs2)) vs1))
-    (else empty-space)))
+    [(eq? vs1 empty-space) empty-space]
+    [(eq? vs2 empty-space) empty-space]
+    [(eq? vs1 universal-space) vs2]
+    [(eq? vs2 universal-space) vs1]
+    ;; Both are concrete lists of programs (simplified algebra)
+    [(and (list? vs1) (list? vs2))
+     (filter (lambda (p) (member p vs2)) vs1)]
+    ;; Singleton handling: treat singleton as one-element list
+    [(and (pair? vs1) (eq? (car vs1) 'singleton))
+     (if (member (cadr vs1) vs2) vs1 empty-space)]
+    [(and (pair? vs2) (eq? (car vs2) 'singleton))
+     (if (member (cadr vs2) vs1) vs2 empty-space)]
+    [else empty-space]))
 
 ;; Union: programs in either space
 (define (vs-union vs1 vs2)
   (cond
-    ((eq? vs1 empty-space) vs2)
-    ((eq? vs2 empty-space) vs1)
-    ((eq? vs1 universal-space) universal-space)
-    ((eq? vs2 universal-space) universal-space)
-    ((and (list? vs1) (list? vs2))
-     ;; Simplified union for demonstration  
-     (remove-duplicates (append vs1 vs2)))
-    (else universal-space)))
+    [(eq? vs1 empty-space) vs2]
+    [(eq? vs2 empty-space) vs1]
+    [(eq? vs1 universal-space) universal-space]
+    [(eq? vs2 universal-space) universal-space]
+    [(and (list? vs1) (list? vs2))
+     (remove-duplicates (append vs1 vs2))]
+    [else universal-space]))
 
-;; Check if program is in version space
+;; Check if program is in version space (strict boolean)
 (define (in-space? prog vs)
   (cond
-    ((eq? vs empty-space) #f)
-    ((eq? vs universal-space) #t)
-    ((list? vs) (member prog vs))
-    (else #f)))
+    [(eq? vs empty-space) #f]
+    [(eq? vs universal-space) #t]
+    [(list? vs) (and (member prog vs) #t)]
+    [(and (pair? vs) (eq? (car vs) 'singleton)) (equal? prog (cadr vs))]
+    [else #f]))
 
 ;; Update version space based on new example
 (define (add-example example vs)
-  (let ((input (car example))
-        (output (cadr example)))
-    (cond
-      ((eq? vs universal-space)
-       ;; Initial version space is just matching programs
-       (filter (lambda (p) (matches-example? p input output)) 
-               (generate-candidates)))
-      ((list? vs)
-       ;; Filter existing space
-       (filter (lambda (p) (matches-example? p input output)) vs))
-      (else vs))))
+  (match-define (list input output) example)
+  (cond
+    [(eq? vs universal-space)
+     (filter (lambda (p) (matches-example? p input output))
+             (generate-candidates))]
+    [(list? vs)
+     (filter (lambda (p) (matches-example? p input output)) vs)]
+    [else vs]))
 
-;; Helper: check if program matches example
+;; Helper: check if program matches example (numbers only in this chapter)
 (define (matches-example? prog input output)
-  ;; Simplified: just check if prog(input) = output
-  ;; In practice, this would evaluate the program
   (and (number? prog) (= prog output)))
 
 ;; Generate candidate programs (simplified)
@@ -79,51 +83,58 @@
 (define (compose-vs vs-list)
   (foldl vs-intersect universal-space vs-list))
 
-;; Example: Learning a linear function
-(displayln "=== Version Space Example ===")
+(module+ main
+  (displayln "=== Version Space Example ===")
 
- ;; Start with universal space
-(define vs (list 0 1 2 3 4 5))  ; Simplified: space of constants 0-5
+  ;; Start with concrete list space (constants 0-5)
+  (define vs (list 0 1 2 3 4 5))
 
-(displayln "Initial version space (constants 0-5):")
-(displayln vs)
-(displayln "")
+  (displayln "Initial version space (constants 0-5):")
+  (displayln vs)
+  (displayln "")
 
-;; Add examples: f(x) = 2x
-(define examples
-  '((0 0)      ; f(0) = 0
-    (1 2)      ; f(1) = 2  
-    (2 4)      ; f(2) = 4
-    (3 6)))    ; f(3) = 6
+  (define examples
+    '((0 0) (1 2) (2 4) (3 6)))
 
-;; Update version space with each example
-(define updated-vs 
-  (foldl (lambda (ex acc) (add-example ex acc)) 
-         vs 
-         examples))
+  (define updated-vs
+    (foldl (lambda (ex acc) (add-example ex acc)) vs examples))
 
-(displayln "After adding examples f(0)=0, f(1)=2, f(2)=4, f(3)=6:")
-(displayln updated-vs)
-(displayln "")
+  (displayln "After adding examples f(0)=0, f(1)=2, f(2)=4, f(3)=6:")
+  (displayln updated-vs)
+  (displayln "No constant fits all four points, so version space collapses to ().")
+  (displayln "")
 
-;; Check size of version space
-(displayln "Size of version space:")
-(displayln (length updated-vs))
+  (displayln "Size of version space:")
+  (displayln (length updated-vs))
 
-;; Demonstrate intersection and union
-(define vs1 '(0 1 2))
-(define vs2 '(1 2 3))
+  (define vs1 '(0 1 2))
+  (define vs2 '(1 2 3))
 
-(displayln "")
-(displayln "Union of {0,1,2} and {1,2,3}:")
-(displayln (vs-union vs1 vs2))
+  (displayln "")
+  (displayln "Union of {0,1,2} and {1,2,3}:")
+  (displayln (vs-union vs1 vs2))
 
-(displayln "")
-(displayln "Intersection of {0,1,2} and {1,2,3}:")
-(displayln (vs-intersect vs1 vs2))
+  (displayln "")
+  (displayln "Intersection of {0,1,2} and {1,2,3}:")
+  (displayln (vs-intersect vs1 vs2))
 
-;; Composing multiple constraints
-(displayln "")
-(displayln "Composing two constraints:")
-(define composed (compose-vs (list vs1 vs2)))
-(displayln composed)
+  (displayln "")
+  (displayln "Composing two constraints:")
+  (displayln (compose-vs (list vs1 vs2)))
+
+  (displayln "")
+  (displayln "Singleton check (1 in {1,2,3}):")
+  (displayln (in-space? 1 '(1 2 3)))
+  (displayln (in-space? 9 '(1 2 3))))
+
+(module+ test
+  (require rackunit)
+  (check-equal? (vs-union '(0 1 2) '(1 2 3)) '(0 1 2 3))
+  (check-equal? (vs-intersect '(0 1 2) '(1 2 3)) '(1 2))
+  (check-true (in-space? 1 '(1 2 3)))
+  (check-false (in-space? 9 '(1 2 3)))
+  (check-true (in-space? 1 universal-space))
+  (check-false (in-space? 1 empty-space))
+  (check-equal? (vs-intersect universal-space '(1 2)) '(1 2))
+  (check-equal? (vs-union empty-space '(1 2)) '(1 2))
+  (check-equal? (add-example '(0 2) '(1 2 3)) '(2)))

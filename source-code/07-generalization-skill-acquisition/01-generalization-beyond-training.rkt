@@ -1,20 +1,16 @@
 #lang racket
 
 ;;; Generalizing Beyond the Training Distribution
-;;;
-;;; This example demonstrates systematic and compositional generalization
-;;; using a simple modular arithmetic task.  A synthesizer learns from a
-;;; few examples how to compose primitive operations (+1, -1, mod 4)
-;;; into programs.  The key point is that once the right composition is
-;;; learned, it generalizes to *all* inputs, not just the training set.
-;;;
-;;; We compare two approaches:
-;;;   1. Nearest-neighbor memorization (fails to generalize)
-;;;   2. Enumerative synthesis over a grammar (generalizes compositionally)
+;;; Modular arithmetic f(x)=(x+1) mod 4 learned from 4 examples suffices for all x.
 
-;; ---------- grammar and evaluator ----------
-;; Expressions over a single integer variable x, with constants 0,1,2,3
-;; and operations inc, dec, mod4, add, and mul.
+(provide eval-expr
+         candidates  ; renamed from gen-exprs: depth param was unused
+         satisfies?
+         synthesize
+         hidden-f)
+
+(require racket/match)
+
 (define (eval-expr e x)
   (match e
     ['x x]
@@ -25,63 +21,53 @@
     [`(+ ,a ,b) (+ (eval-expr a x) (eval-expr b x))]
     [`(- ,a ,b) (- (eval-expr a x) (eval-expr b x))]
     [`(* ,a ,b) (* (eval-expr a x) (eval-expr b x))]
-    [_ (error 'eval-expr "bad expr: ~a" e)]))
+    [_ (raise-argument-error 'eval-expr "arith expr" e)]))
 
-;; Generate expressions in a structured, depth-limited way.  To keep the
-;; enumeration tractable we combine a shallow "leaf" set with a small
-;; number of carefully built binary expansions.
-(define (gen-exprs depth)
+;; Bounded candidate set used previously as gen-exprs (depth was unused)
+(define (candidates)
   (define leaves '(x 0 1 2 3))
   (define unary (append (map (lambda (a) `(inc ,a)) leaves)
                         (map (lambda (a) `(dec ,a)) leaves)
                         (map (lambda (a) `(mod4 ,a)) leaves)))
-  ;; Only pair up leaves for binary ops, and add a couple of useful
-  ;; compositions that are common in small programs.
   (define binary
     (append
-     ;; combine leaves with leaves
-     (for*/list ((a leaves) (b leaves)) `(+ ,a ,b))
-     (for*/list ((a leaves) (b leaves)) `(- ,a ,b))
-     (for*/list ((a leaves) (b leaves)) `(* ,a ,b))
-     ;; combine unary results with leaves
-     (for*/list ((u unary) (b leaves)) `(+ ,u ,b))
-     (for*/list ((u unary) (b leaves)) `(* ,u ,b))
-     ;; a couple of higher-depth shapes: (mod4 x)+1, (mod4 (x+1)), etc.
-     `((mod4 (+ x x)) (mod4 (* x x)) (mod4 (+ x 1)) (mod4 (* x x))
+     (for*/list ([a leaves] [b leaves]) `(+ ,a ,b))
+     (for*/list ([a leaves] [b leaves]) `(- ,a ,b))
+     (for*/list ([a leaves] [b leaves]) `(* ,a ,b))
+     (for*/list ([u unary] [b leaves]) `(+ ,u ,b))
+     (for*/list ([u unary] [b leaves]) `(* ,u ,b))
+     '((mod4 (+ x x)) (mod4 (* x x)) (mod4 (+ x 1))
        (+ (mod4 x) 1) (+ 1 (mod4 x)) (* (mod4 x) 2) (* 2 (mod4 x)))))
-  (append leaves unary binary))
+  (remove-duplicates (append leaves unary binary)))
 
-;; ---------- constraint checking ----------
+;; Keep gen-exprs as alias for backward compatibility
+(define (gen-exprs depth) (candidates))
+
 (define (satisfies? prog examples)
-  (andmap (lambda (ex)
-            (= (eval-expr prog (car ex)) (cdr ex)))
-          examples))
+  (andmap (lambda (ex) (= (eval-expr prog (car ex)) (cdr ex))) examples))
 
 (define (synthesize examples depth)
-  (findf (lambda (e) (satisfies? e examples))
-         (gen-exprs depth)))
+  (findf (lambda (e) (satisfies? e examples)) (candidates)))
 
-;; ---------- task ----------
-;; The hidden function: f(x) = (x + 1) mod 4  -- a cyclic increment
 (define (hidden-f x) (modulo (+ x 1) 4))
-
-;; Training examples only cover x = 0..3
 (define train-examples '((0 . 1) (1 . 2) (2 . 3) (3 . 0)))
 
-;; Nearest-neighbor baseline (memorization)
 (define (nn-predict x examples)
-  (let ((best (argmin (lambda (ex) (abs (- x (car ex)))) examples)))
-    (cdr best)))
+  (cdr (argmin (lambda (ex) (abs (- x (car ex)))) examples)))
 
-;; Synthesizer
-(define prog (synthesize train-examples 3))
+(module+ main
+  (define prog (synthesize train-examples 3))
+  (displayln "=== Generalizing Beyond Training Distribution ===")
+  (displayln (format "Training examples: ~a" train-examples))
+  (displayln (format "Nearest-neighbor on unseen x=4: ~a (memorizes)" (nn-predict 4 train-examples)))
+  (displayln (format "Synthesized program: ~a" prog))
+  (displayln (format "Synthesized on unseen: ~a" (map (lambda (x) (eval-expr prog x)) '(4 5 6 7 8))))
+  (displayln (format "Hidden function:       ~a" (map hidden-f '(4 5 6 7 8)))))
 
-(displayln "=== Generalizing Beyond Training Distribution ===")
-(displayln (format "Training examples (x . f(x)): ~a" train-examples))
-(displayln (format "Nearest-neighbor prediction on unseen x=4: ~a"
-                   (nn-predict 4 train-examples)))
-(displayln (format "Synthesized program: ~a" prog))
-(displayln (format "Synthesized program on unseen inputs: ~a"
-                   (map (lambda (x) (eval-expr prog x)) '(4 5 6 7 8))))
-(displayln (format "Hidden function on unseen inputs:      ~a"
-                   (map hidden-f '(4 5 6 7 8))))
+(module+ test
+  (require rackunit)
+  (check-equal? (hidden-f 3) 0)
+  (check-equal? (eval-expr '(mod4 (+ x 1)) 3) 0)
+  (check-equal? (synthesize train-examples 3) '(mod4 (+ x 1)))
+  (check-false (equal? (nn-predict 4 train-examples) (hidden-f 4)))
+  (check-not-false (member '(mod4 (+ x 1)) (candidates))))
