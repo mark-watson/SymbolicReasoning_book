@@ -136,8 +136,6 @@ If a chapter file needs helpers from several utils, it can import the aggregator
 (require "../utils/math.rkt")   ; single concern
 ```
 
-The same files are mirrored under `source-cots/utils/` so the book text and the `source-code` tree stay aligned with tooling.
-
 ### Why Chapter 1 Owns This Section
 
 Chapter 1 is where the book first asks you to run code. It is the right place to show where shared code lives and how to import it. The pattern after this chapter is the same everywhere:
