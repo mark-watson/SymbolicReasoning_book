@@ -1,103 +1,103 @@
 # Inductive Synthesis & Programming by Example (PBE)
 
-Programming by Example (PBE) represents one of the most intuitive and practical approaches to program synthesis. Instead of writing formal specifications or logical descriptions of desired behavior, users provide concrete input-output examples. The synthesis system must then infer a program that correctly transforms the given inputs to the desired outputs.
+Programming by Example (PBE) represents one of the most intuitive approaches to synthesis: users give input-output pairs, the system infers a program. This chapter moves from the constant-only language of Chapter 2 to grammars with variables and shows three ways to search them—version spaces, evolutionary search, and FlashFill-style demonstration—using the same factored helpers as the rest of the book.
 
-All code examples for this chapter are in `source-code/03-inductive-synthesis-pbe/`.
+All code for this chapter is in `source-code/03-inductive-synthesis-pbe/`. `string-reverse` is imported from `source-code/utils/string.rkt`; demos are in `(module+ main ...)` and checks in `(module+ test ...)`.
 
-## The Program Synthesis Problem
+## String Transformations: Fixing the DSL
 
-Synthesis problems are formally defined by specifications that describe:
-- **Examples**: Input-output pairs demonstrating desired behavior  
-- **Grammar**: What operations and language constructs are allowed
-- **Verification**: How to check that a candidate program satisfies the specification
-
-The file `04-problem-formulation.rkt` demonstrates this formal approach:
+`01-pbe-string-transform.rkt` now uses `match` and a correct `take`/`drop` distinction. The early draft treated `drop` as `(substring s 0 n)` twice.
 
 ```racket
-(struct synthesis-problem
-  (name examples grammar verify metadata))
+(require "../utils/string.rkt")
 
-(define (make-problem name examples grammar verify (meta '()))
-  (synthesis-problem name examples grammar verify meta))
+(struct string-op (name func) #:transparent)
+(define +operations+
+  (list (string-op "reverse" string-reverse)
+        (string-op "to-upper" string-upcase)
+        (string-op "to-lower" string-downcase)
+        (string-op "trim" string-trim)))
+
+(define (eval-string-expr expr input)
+  (match expr
+    [(? string? s) s]
+    ['input input]
+    [`(concat ,args ...) (apply string-append (map (lambda (a) (eval-string-expr a input)) args))]
+    [`(take ,s ,n) (substring (eval-string-expr s input) 0 n)]
+    [`(drop ,s ,n) (substring (eval-string-expr s input) n)]
+    [_ (raise-argument-error 'eval-string-expr "string expr" expr)]))
+
+(define (learn-transform examples)
+  (for/or ([op +operations+])
+    (and (for/and ([ex examples]) (equal? ((string-op-func op) (car ex)) (cadr ex))) op)))
 ```
 
-## Enumerative Search
-
-The most straightforward approach to PBE is to systematically generate and test candidate programs until finding one that satisfies all examples.
-
-### Bottom-Up Enumeration
-
-The example `01-enumerative-search.rkt` demonstrates bottom-up program enumeration, starting with simple expressions and combining them:
-
-```racket
-(define (generate-programs max-size)
-  (if (= max-size 1)
-      (list 0 1 2 3 4 5)
-      (append base
-              (for*/list ((a (generate-programs (max 1 (- max-size 1))))
-                          (b (generate-programs (max 1 (- max-size 1))))
-                          (op '(+ *)))
-                (list op a b)))))
-```
-
-This approach faces the challenge of combinatorial explosion—the space of possible programs grows rapidly with program size.
+The behavior is intentionally honest: `("john smith" "smith, john")` returns `#f` because the DSL has no `split` on space. The printed message says so, and the chapter notes that a richer DSL would learn `(concat (second (split input " ")) ", " (first ...))`. `apply-operation` now takes the `string-op` struct itself (with a contract check) and the file provides an explicit export list.
 
 ## Version Space Algebras
 
-Version spaces provide a compact representation of all programs consistent with the given examples. The file `02-version-space.rkt` demonstrates:
+`02-version-space.rkt` keeps the `vs` struct but now shares `string-reverse` and shows both the intersection and the sequential-filter story:
 
 ```racket
+(require "../utils/string.rkt")
+(struct vs (desc candidates) #:transparent)
+
 (define (vs-update example old-vs)
-  (let ((input (car example))
-        (output (cadr example))
-        (candidates (vs-candidates old-vs)))
-    (let ((filtered
-           (filter (lambda (c) (predict-for-example c input output))
-                   candidates)))
-      (vs (vs-desc old-vs) filtered))))
+  (match-define (list input output) example)
+  (vs (vs-desc old-vs)
+      (filter (lambda (c) (equal? (apply-operation c input) output))
+              (vs-candidates old-vs))))
+
+(define (vs-intersect vs1 vs2)
+  (vs (vs-desc vs1) (filter (lambda (c) (member c (vs-candidates vs2))) (vs-candidates vs1))))
 ```
 
-As new examples arrive, the version space shrinks, focusing search on plausible candidates.
+The demo filters `hello -> olleh` to `(reverse)` and `HELLO -> hello` to `(to-lower)` separately, shows their intersection is `()` (no primitive is both), and also shows sequential filtering `hello` then `HELLO` is `()`. `provide` is explicit and `string-reverse` is no longer redefined locally.
 
 ## Stochastic and Evolutionary Search
 
-When systematic search becomes intractable, stochastic methods use randomness and population-based search. The genetic programming example (`03-genetic-programming.rkt`) evolves programs through mutation and crossover:
+`03-genetic-programming.rkt` adds the variable `x` (so `f(x)=2x` can be learned) and fixes mutation/crossover to work on subtrees, matching the fix in Chapter 2:
 
 ```racket
-(define (fitness program examples)
-  (let ((error 0))
-    (for ((ex examples))
-      (set! error (+ error 
-                     (abs (- (eval-expr program (hash 'x input)) 
-                            (cadr ex))))))
-    (- error)))
+(define (eval-expr expr env)
+  (match expr
+    [(? number? n) n]
+    [(? symbol? s) (hash-ref env s s)]
+    [`(+ ,a ,b) (+ (eval-expr a env) (eval-expr b env))]
+    [`(* ,a ,b) (* (eval-expr a env) (eval-expr b env))]
+    [`(- ,a ,b) (- (eval-expr a env) (eval-expr b env))]))
+
+(define (mutate prog) (replace-random-subtree prog (random-program 1)))
+(define (crossover p1 p2)
+  (if (and (list? p1) (list? p2))
+      (replace-random-subtree p1 (random-ref (subtrees p2)))
+      (random-ref (list p1 p2))))
 
 (define (evolve population examples generations)
-  (let loop ((gen 0) (pop population))
-    ...))
+  (let loop ([gen 0] [pop population])
+    (if (>= gen generations) (argmax (lambda (p) (fitness p examples)) pop)
+        (let* ([scored (sort pop > #:key (lambda (p) (fitness p examples)))]
+               [parents (take scored (max 2 (quotient (length scored) 2)))])
+          (loop (+ gen 1) (append parents (for/list ([_ parents]) (mutate (crossover (random-ref parents) (random-ref parents))))))))))
 ```
 
-Fitness evaluation drives selection toward better solutions.
+The file now also evolves: `fitness` threads the input via `(hash 'x input)`, `evolve` keeps the top half as parents and breeds offspring via `crossover` + `mutate`, and the printed trace shows convergence to fitness `0` with `(- (+ x x) (* 0 x))` (i.e., `(+ x x)`).
 
-## Practical Applications
+## FlashFill Demo
 
-PBE has driven many practical successes:
-- **Data Wrangling**: Excel's Flash Fill and related tools
-- **Code Repair**: Learning repair patterns from examples  
-- **Scientific Discovery**: Finding explanatory models from data
-
-The Flash Fill demo (`04-flash-fill-demo.rkt`) shows basic transformation learning, though sophisticated PBE systems require richer DSLs and search strategies for tasks like name formatting.
-
----
-
-PBE is a foundational technique for program synthesis. The next part of this book explores deductive and constraint-based methods that derive programs from formal specifications with correctness guarantees.
+`04-flash-fill-demo.rkt` is trimmed to its honest scope: the toy DSL has only whole-string ops, so phone formatting `1234567890 -> 123-456-7890` cannot be learned. The file states this explicitly, keeps the three `transformation` structs (`reverse`, `lower`, `upper`, now plus `trim`), imports `string-reverse` from utils, and uses a strict `provide` list. The test shows `flash-fill` on `HELLO -> hello` returns `"lower"` and on `john smith -> smith, john` returns `#f`.
 
 ## Running the Examples
 
 ```bash
 cd source-code/03-inductive-synthesis-pbe
-racket 01-pbe-string-transform.rkt      # String transformation learning
-racket 02-version-space.rkt            # Version space operations  
-racket 03-genetic-programming.rkt       # Genetic programming
-racket 04-flash-fill-demo.rkt          # Flash Fill-style demo
+racket 01-pbe-string-transform.rkt   # correct take/drop, struct API
+racket 02-version-space.rkt         # sequential vs intersect
+racket 03-genetic-programming.rkt   # subtree mutate/crossover, with x
+racket 04-flash-fill-demo.rkt       # honest FlashFill scope
+
+# tests (no demo output)
+raco test .
 ```
+
+The next chapter keeps the same `eval-expr` pattern but adds proof extraction, SAT-style constraint solving, and grammar-guided search.

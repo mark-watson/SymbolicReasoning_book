@@ -4,7 +4,12 @@ The previous chapter ended with a warning sign. Deductive synthesis gives beauti
 
 The core observation is simple: neural networks are remarkably good at *perception* and *pattern recognition*, while symbolic systems are remarkably good at *reasoning*, *composition*, and *verification*. A neurosymbolic system couples the two. The neural side translates raw, noisy input (pixels, text, sensor signals) into structured hypotheses. The symbolic side checks those hypotheses against logical constraints, composes them with known rules, and searches for executable programs that satisfy them. Both sides can inform each other during training, and—crucially—both sides are visible in the final artifact in a way that neither a hidden state nor a symbolic trace is alone.
 
-All code examples for this chapter are in `source-code/05-neurosymbolic-paradigm/`. They are written in plain Racket and implement small versions of the neurosymbolic pipeline by hand, so the learning loop, the constraint checker, and the search procedure are all explicit.
+All code examples for this chapter are in `source-code/05-neurosymbolic-paradigm/`. They are written in plain Racket and implement small versions of the neurosymbolic pipeline by hand, so the learning loop, the constraint checker, and the search procedure are all explicit. Shared math and logic helpers (`dot`, `hamming`, `t-and`, `t-impl`) are imported from `source-code/utils/math.rkt` and `utils/logic.rkt` so the four files no longer redefine them. Each file is an explicit-`provide` module with `(module+ main ...)` for demos and `(module+ test ...)` for `raco test`.
+
+```racket
+(require "../utils/math.rkt")   ; dot, hamming
+(require "../utils/logic.rkt")  ; t-and, t-impl
+```
 
 ## Why Deep Learning Alone is Insufficient
 
@@ -34,7 +39,7 @@ The first example, `01-why-deep-learning-insufficient.rkt`, makes these abstract
 
 The perceptron learns a weight vector `ws` whose dot product with the input (with a leading bias of `1`) crosses zero exactly on the training boundary. Each error triggers an additive update that shifts the hyperplane toward the misclassified point. Three experiments show the limits of this pattern.
 
-First, the perceptron fits the OR-like dataset perfectly, reaching accuracy `1` after a few passes. Second, when the network is trained only on `(0 0)`, `(0 1)`, and `(1 0)`, its prediction on the held-out `(1 1)` is unstable—it depends on the exact weights the update rule chanced upon. The model has no rule for what OR means; it has only learned to separate three points. Third, on XOR the perceptron plateaus at accuracy `1/2` no matter how many epochs it runs, because XOR is not linearly separable:
+First, the perceptron fits the OR-like dataset perfectly, reaching accuracy `1` after a few passes. Second, when the network is trained only on `(0 0)`, `(0 1)`, and `(1 0)`, its prediction on the held-out `(1 1)` is checked against the true OR value `1`. The updated demo prints `Held-out prediction 1 vs true 1 -> OK` or `FAIL`, making the brittleness explicit rather than showing `?`. `dot` is now imported from `utils/math.rkt`, and the file’s `accuracy` and `show-preds` are exported with an explicit `provide`. Third, on XOR the perceptron plateaus at accuracy `1/2` no matter how many epochs it runs, because XOR is not linearly separable:
 
 ```
 === Part 3: XOR is not linearly separable ===
@@ -53,7 +58,7 @@ The neurosymbolic response to these failures is to give each component of the sy
 
 The classic testbed for this division of labor is the digit-addition task. Given two images of handwritten digits, the system must output their sum. A purely neural model trained end-to-end on pairs of images and their sums tends to memorize the training pairs and fails on unseen digit combinations. A neurosymbolic pipeline, in contrast, trains a network to recognize individual digits and then *symbolically adds* the resulting integers.
 
-The example `02-neural-symbolic-synergy.rkt` captures this architecture with a minimal stand-in for the perceptual network: a nearest-neighbor classifier over hand-coded 3x3 bitmaps:
+The example `02-neural-symbolic-synergy.rkt` captures this architecture with a minimal stand-in for the perceptual network: a nearest-neighbor classifier over hand-coded 3x3 bitmaps. The `0` and `6` patterns are now distinct (the early draft duplicated them, making them indistinguishable), and `hamming` is imported from `utils/math.rkt`:
 
 ```racket
 (define (recognize-digit pattern)
@@ -95,9 +100,8 @@ The architecture above keeps the two halves cleanly separated at inference time.
 The third example, `03-differentiable-reasoning.rkt`, builds a tiny differentiable reasoning engine from scratch. The building blocks are smooth *t-norms*—fuzzy relaxations of Boolean connectives:
 
 ```racket
-(define (t-and  x y) (* x y)))               ; product t-norm
-(define (t-not  x)   (- 1 x))                ; standard negation
-(define (t-impl x y) (+ 1 (- x) (* x y)))    ; Reichenbach implication
+(require "../utils/logic.rkt")  ; t-and, t-impl, t-not
+;; product t-norm and Reichenbach implication are now shared
 ```
 
 The product t-norm interprets conjunction as multiplication, so `and(x,y)` is high exactly when both conjuncts are high. The Reichenbach implication is a smooth relaxation of material implication: `1 - x + x*y` is `1` when `x` is `0` (vacuous truth), close to `1` when `x` and `y` are both high, and low when `x` is high and `y` is low.
@@ -201,7 +205,7 @@ This case study is small, but the architecture scales. Real systems like NeurASP
 
 ## Running the Examples
 
-Each file is self-contained and runs with a stock Racket installation, no external packages required:
+Each is an explicit-`provide` module with `(module+ main ...)` for narration and `(module+ test ...)` for checks; `require` is silent:
 
 ```bash
 cd source-code/05-neurosymbolic-paradigm
@@ -209,6 +213,7 @@ racket 01-why-deep-learning-insufficient.rkt
 racket 02-neural-symbolic-synergy.rkt
 racket 03-differentiable-reasoning.rkt
 racket 04-compositional-reasoning-case-study.rkt
+raco test .   # no demo output on require
 ```
 
 The printouts narrate each stage: perceptron convergence and failure on XOR, the lookup-table baseline versus the digit recognizer plus `+`, the gradient trace on the Socratic syllogism, and the discovery of `(+ x x)` from a single example. Reading the outputs alongside the code shows exactly where the neural and symbolic responsibilities meet.

@@ -1,6 +1,6 @@
 # Generalization & Autonomous Skill Acquisition
 
-A synthesis system is truly useful only when it can go beyond the specific examples it was trained on. This chapter examines how to build systems that generalize systematically and compositionally, reuse learned abstractions instead of rediscovering them, adapt online to new tasks at test time, and ultimately acquire new skills autonomously. The code examples are in `source-code/07-generalization-skill-acquisition/`, and they are written in plain Racket so that each search and learning loop is explicit.
+A synthesis system is truly useful only when it can go beyond the specific examples it was trained on. This chapter examines how to build systems that generalize systematically, reuse learned abstractions, adapt online at test time, and acquire skills autonomously. The code is in `source-code/07-generalization-skill-acquisition/` and is now explicit-`provide` modules with `(module+ main ...)`/`(module+ test ...)`; `skill-library` is a parameter so `require` is silent, and `synthesize-skill` no longer takes an unused `max-depth` argument.
 
 ## Generalizing Beyond the Training Distribution
 
@@ -23,12 +23,14 @@ A nearest‑neighbor baseline does not learn the function at all; it simply retu
 For an unseen input `x = 4`, the nearest neighbor is `3`, so the baseline predicts `0`—a result that appears plausible (the task is cyclic) but is derived from proximity, not from the underlying rule. In contrast, the synthesizer enumerates a small expression grammar and returns the first program that matches all training points:
 
 ```racket
+;; candidates is a fixed bounded set; depth param previously unused, now aliased
+(define (candidates) (remove-duplicates (append leaves unary binary)))
+(define (gen-exprs depth) (candidates))  ; backward compatible
 (define (synthesize examples depth)
-  (findf (lambda (e) (satisfies? e examples))
-         (gen-exprs depth)))
+  (findf (lambda (e) (satisfies? e examples)) (candidates)))
 ```
 
-Because the grammar includes `mod4` and arithmetic operators, the synthesizer finds `(mod4 (+ x 1))`. That program is *compositional*: it applies a known primitive (`+1`) and then wraps it in `mod4`. Once it is discovered, it generalizes to every integer input. Running the example shows that the synthesized program matches the hidden function on the held‑out inputs 4 through 8, while the nearest‑neighbor baseline can only guess.
+Because the grammar includes `mod4`, the synthesizer finds `(mod4 (+ x 1))`. The duplicate `(mod4 (* x x))` in the draft’s `binary` list is now deduplicated. That program is *compositional*: it applies a known primitive (`+1`) and then wraps it in `mod4`. Once it is discovered, it generalizes to every integer input. Running the example shows that the synthesized program matches the hidden function on the held‑out inputs 4 through 8, while the nearest‑neighbor baseline can only guess.
 
 ## Compositional Abstractions and Reusable Modules
 
@@ -80,16 +82,15 @@ The example `03-test-time-adaptation.rkt` implements online synthesis of a simpl
     (list a b)))
 ```
 
-The online loop uses this synthesizer repeatedly:
+The online loop uses this synthesizer repeatedly, now returning `void` at the end (the draft returned the example list and printed a quoted `'((0 . 1) ...)` line of noise):
 
 ```racket
 (define (online-synthesis stream)
-  (let loop ((examples '()) (rest stream) (step 1))
-    ...
-    (let* ((pair (car rest))
-           (examples* (append examples (list pair)))
-           (model (synthesize-on-the-fly examples*)))
-      ...)))
+  (let loop ([examples '()] [rest stream] [step 1])
+    (if (null? rest) (begin (displayln (format "Final model after ~a examples: ~a" (length examples) examples)) (void))
+        (let* ([pair (car rest)] [examples* (append examples (list pair))] [model (synthesize-on-the-fly examples*)])
+          (displayln (format "Step ~a: seen ~a, synthesized f(x)=~a*x+~a" step pair (first model) (second model)))
+          (loop examples* (cdr rest) (+ step 1))))))
 ```
 
 Because the system returns an explicit model `(a . b)`, it can be applied immediately to any new input without retraining. When the stream arrives as `((0 . 1) (1 . 3) (2 . 5))`, the synthesizer first proposes `0*x + 1`, then `2*x + 1`, and remains at `2*x + 1` after the third step. The final model correctly predicts `f(4) = 9`, illustrating how test‑time synthesis turns a stream of raw pairs into a reusable, general artifact.
@@ -101,12 +102,14 @@ The ultimate goal of synthesis research is not just to solve a fixed set of task
 The example `04-skill-acquisition.rkt` implements a tiny skill library. Skills are Racket functions stored in a mutable association list. The system begins with an empty library and then synthesizes two simple skills from examples:
 
 ```racket
-(define double-examples '((1 . 2) (2 . 4) (3 . 6)))
-(define double-prog (synthesize-skill double-examples 1))
-(add-skill! 'double (lambda (x) (eval-expr double-prog x)))
+(define skill-library (make-parameter '()))  ; parameter, not set! global
+(define (synthesize-skill examples)  ; no unused max-depth
+  (define candidates '(x (+ x x) (* x x) (+ x 1) (* 2 x) (* 3 x)))
+  (findf (lambda (e) (andmap (lambda (ex) (= (eval-expr e (car ex)) (cdr ex))) examples)) candidates))
 
-(define square-examples '((1 . 1) (2 . 4) (3 . 9)))
-(define square-prog (synthesize-skill square-examples 1))
+(define double-prog (synthesize-skill '((1 . 2) (2 . 4) (3 . 6))))
+(add-skill! 'double (lambda (x) (eval-expr double-prog x)))
+(define square-prog (synthesize-skill '((1 . 1) (2 . 4) (3 . 9))))
 (add-skill! 'square (lambda (x) (eval-expr square-prog x)))
 ```
 
@@ -127,7 +130,7 @@ This example is deliberately minimal, but it captures the lifecycle that any aut
 
 ## Running the Examples
 
-All four demonstrations are self‑contained Racket programs:
+All four are explicit-`provide` modules with `(module+ main ...)`/`(module+ test ...)`; `require` is silent:
 
 ```bash
 cd source-code/07-generalization-skill-acquisition
@@ -135,6 +138,7 @@ racket 01-generalization-beyond-training.rkt
 racket 02-compositional-abstractions.rkt
 racket 03-test-time-adaptation.rkt
 racket 04-skill-acquisition.rkt
+raco test .
 ```
 
 Each prints a narration of its search or learning loop: the contrast between nearest‑neighbor and grammar‑based synthesis on a cyclic task, the reuse of a macro in a small composition space, the online fitting of a linear model, and the acquisition and composition of skills in a toy library.

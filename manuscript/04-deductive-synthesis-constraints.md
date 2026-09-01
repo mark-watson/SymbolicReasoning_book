@@ -4,7 +4,7 @@ The previous chapter showed how programs can be induced from input-output exampl
 
 In this chapter we explore four complementary techniques: synthesis from constructive proofs, constraint solving with SAT and SMT solvers, Counter-Example Guided Inductive Synthesis (CEGIS), and syntax-guided synthesis with grammars and sketches. Together these methods form the backbone of modern correct-by-construction program synthesis, used in systems such as Sketch, Rosette, and the SyGuS competition solvers.
 
-All code examples for this chapter are in `source-code/04-deductive-synthesis-constraints/`. The examples are written in plain Racket and deliberately implement small versions of the algorithms by hand, so the search and verification logic is visible rather than hidden inside an external solver.
+All code examples are in `source-code/04-deductive-synthesis-constraints/`. They are written in plain Racket so search and verification are visible. Each file now uses an explicit `provide` (e.g., `derive`, `solve-constraints`, `cegis`, `gen-int`), `racket/match`, and `(module+ main ...)`/`(module+ test ...)` so `require` is silent. String helpers are imported from `utils/string.rkt` where needed, and the `02-smt`/`03-cegis`/`04-sygus` traces note that ordering by size gives the smallest fitting program.
 
 ## Programs from Proofs: Deductive Synthesis
 
@@ -189,14 +189,15 @@ Sketches and grammars encode expert knowledge about program structure. The more 
 
 ## Running the Examples
 
-All four demonstrations run with a stock Racket installation and no external packages. Each is self-contained and prints a narrated trace of its search:
+All four are explicit-`provide` modules with `(module+ main ...)` for traces and `(module+ test ...)` for checks, so `require` is silent and `raco test .` runs without demo output:
 
 ```bash
 cd source-code/04-deductive-synthesis-constraints
-racket 01-proof-based-synthesis.rkt   # Programs extracted from proofs
-racket 02-smt-constraints.rkt         # Constraint solving over a template
-racket 03-cegis.rkt                   # Counter-example guided loop
-racket 04-sygus-sketch.rkt            # Grammar enumeration and sketches
+racket 01-proof-based-synthesis.rkt   # programs from proofs
+racket 02-smt-constraints.rkt
+racket 03-cegis.rkt
+racket 04-sygus-sketch.rkt
+raco test .                           # 11 checks, no demo output
 ```
 
 The traces are worth reading carefully. In `01-proof-based-synthesis.rkt`, watch how the proof term and program term grow together. In `03-cegis.rkt`, count how few examples were needed to pin down the correct program. These traces are the chapter's theory made visible.

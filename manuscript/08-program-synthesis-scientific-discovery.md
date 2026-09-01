@@ -1,6 +1,6 @@
 # Program Synthesis for Scientific Discovery
 
-Science advances through a cycle of hypothesizing, testing, and refinement. Program synthesis can automate each step: hypotheses are programs that predict data, tests are checks of those programs against observations, and refinement is a new round of search guided by where the current hypothesis fails. This chapter shows how the inductive and deductive machinery from earlier chapters applies to scientific problems, from rediscovering physical laws to reasoning about causal interventions. The code examples are in `source-code/08-program-synthesis-scientific-discovery/` and run with a stock Racket installation.
+Science advances through hypothesizing, testing, and refinement. Program synthesis automates each step: hypotheses are programs, tests check them against data, refinement re-searches where they fail. The code is in `source-code/08-program-synthesis-scientific-discovery/` and runs with stock Racket. Each file now has an explicit `provide`, uses `racket/match`, and keeps demos in `(module+ main ...)` with `raco test` checks; `clamp01` and `size` are shared from `utils/`.
 
 ## Automated Hypothesis Generation and Testing
 
@@ -104,21 +104,19 @@ The example `03-causal-reasoning.rkt` builds a tiny causal model with three vari
 Each node also has a baseline value; the links specify how parent's value shifts the child's. The core operation is *propagation*: starting from the observed baselines (or from an intervention), compute each node's value in topological order, clamped to [0,1]:
 
 ```racket
+(define (link-strength from to)
+  (for/first ([l links] #:when (and (eq? (first l) from) (eq? (second l) to))) (third l)))
+
 (define (propagate interventions)
-  (define vaccinate
-    (hash-ref interventions 'vaccinate
-              (hash-ref baseline 'vaccinate)))
+  (define vaccinate (hash-ref interventions 'vaccinate (hash-ref baseline 'vaccinate)))
   (define infection
-    (if (hash-has-key? interventions 'infection)
-        (hash-ref interventions 'infection)
-        (clamp01 (+ (hash-ref baseline 'infection)
-                    (* -0.7 vaccinate)))))
+    (if (hash-has-key? interventions 'infection) (hash-ref interventions 'infection)
+        (clamp01 (+ (hash-ref baseline 'infection) (* (or (link-strength 'vaccinate 'infection) -0.7) vaccinate)))))
   (define hospital
-    (if (hash-has-key? interventions 'hospital)
-        (hash-ref interventions 'hospital)
-        (clamp01 (+ (hash-ref baseline 'hospital)
-                    (* 0.8 infection)))))
+    (if (hash-has-key? interventions 'hospital) (hash-ref interventions 'hospital)
+        (clamp01 (+ (hash-ref baseline 'hospital) (* (or (link-strength 'infection 'hospital) 0.8) infection)))))
   (hash 'vaccinate vaccinate 'infection infection 'hospital hospital))
+;; links is now read via link-strength, not hard-coded
 ```
 
 The three scenarios in the example are:
@@ -148,10 +146,13 @@ The example `04-equation-discovery-kepler.rkt` does exactly that. The grammar is
   (define atoms '(a 1 2 3))
   (define unary (append (map (lambda (x) `(pow2 ,x)) atoms)
                         (map (lambda (x) `(pow3 ,x)) atoms)))
-  (append atoms unary
-          (for*/list ((x atoms) (y (append atoms unary))) `(* ,x ,y))
-          (for*/list ((x (list 'a)) (y unary)) `(* ,x ,y))
-          (for*/list ((x atoms) (y unary)) `(+ ,x ,y))))
+  (remove-duplicates
+   (append atoms unary
+           (for*/list ([x atoms] [y (append atoms unary)]) `(* ,x ,y))
+           (for*/list ([x (list 'a)] [y unary]) `(* ,x ,y))
+           (for*/list ([x atoms] [y unary]) `(+ ,x ,y)))
+   equal?))
+;; duplicate (* a (pow2 a)) now removed; fit-error is arity 1 and closes over observations
 ```
 
 Six observations, with small noise, are provided for a in the range 1.0 to 3.5 (true law `T^2 = a^3`):
@@ -182,7 +183,7 @@ The discovered law is short, exact to within the simulated noise, and it general
 
 ## Running the Examples
 
-All four demonstrations run with stock Racket, no external packages:
+All four are explicit-`provide` modules with `(module+ main ...)`/`(module+ test ...)`; `require` is silent:
 
 ```bash
 cd source-code/08-program-synthesis-scientific-discovery
@@ -190,6 +191,7 @@ racket 01-hypothesis-generation.rkt
 racket 02-data-efficient-learning.rkt
 racket 03-causal-reasoning.rkt
 racket 04-equation-discovery-kepler.rkt
+raco test .
 ```
 
 Each prints a short trace of its search before the final answer, so you can see exactly which hypotheses were considered and why the winner won.

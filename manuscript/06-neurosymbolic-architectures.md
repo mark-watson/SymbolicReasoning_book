@@ -2,7 +2,7 @@
 
 The previous chapter explored the neurosymbolic paradigm as a design pattern: neural nets for perception, symbolic engines for reasoning, and a smooth interface that connects them. This chapter tours four concrete architectures that realize that pattern, each with a working example written in Racket. These architectures—Logic Tensor Networks (LTN), Logical Neural Networks (LNN), NeurASP, and Differentiable Inductive Logic Programming (∂ILP)—share the same goal but differ in the trade-offs they make between expressivity, training stability, and interpretability.
 
-All code examples are in `source-code/06-neurosymbolic-architectures/` and are written in plain Racket so that every step of the reasoning and learning loop is visible. None of the examples requires an external solver or library; each architecture is implemented from first principles in a few dozen lines.
+All code examples are in `source-code/06-neurosymbolic-architectures/` and are written in plain Racket so that every step is visible. Shared `dot`, `sigmoid`, and t-norm helpers are imported from `source-code/utils/math.rkt` and `utils/logic.rkt`; each file now has an explicit `provide` and `(module+ main ...)`/`(module+ test ...)` so `require` is silent. None requires an external solver.
 
 ## Logic Tensor Networks (LTN)
 
@@ -17,20 +17,17 @@ The example `01-logic-tensor-network.rkt` implements a minimal LTN. Constants ar
 (define carol (const 'carol '(0.4 0.8)))
 ```
 
-Predicates are structs with a mutable weight vector. Evaluating a predicate takes the dot product of its weights with the concatenated embeddings of its arguments, then applies a sigmoid:
+Predicates are structs with a mutable weight vector. Evaluating a predicate takes the dot product of its weights with the concatenated embeddings—`dot` and `sigmoid` are imported from `utils/math.rkt`—and checks that the concatenated length matches the weight length:
 
 ```racket
+(require "../utils/math.rkt" "../utils/logic.rkt")
 (struct pred (name [weights #:mutable]) #:transparent)
 (define (eval-pred p args)
-  (sigmoid (dot (pred-weights p)
-                (apply append (map eval-const args)))))
-```
-
-Conjunction is the product t-norm, and implication is the smooth Reichenbach form:
-
-```racket
-(define (t-and x y) (* x y))
-(define (t-impl x y) (+ 1.0 (- x) (* x y)))
+  (define embs (apply append (map eval-const args)))
+  (unless (= (length embs) (length (pred-weights p)))
+    (raise-argument-error 'eval-pred "weights length vs embedding length" 0 p args))
+  (sigmoid (dot (pred-weights p) embs)))
+;; t-and, t-impl are imported from utils/logic.rkt
 ```
 
 We encode the rule ∀x,y (friend(x,y) ∧ likes(x,sports) → likes(y,sports)) by first writing a per-grounding satisfaction function:
@@ -74,17 +71,17 @@ The example `02-logical-neural-network.rkt` defines neurons as a small struct ty
 (struct neuron (kind [inputs #:mutable] [value #:mutable]) #:transparent)
 ```
 
-where `kind` is either `'input`, `'and`, or `'impl`. Evaluation is a tree walk:
+where `kind` is either `'input`, `'and`, or `'impl`. Evaluation is now split into a pure walk that does not mutate and a caching wrapper, so `neuron-grad` (which does finite differences on `q`) does not leave stale `impl`/`and` values:
 
 ```racket
-(define (eval-neuron n)
+(require "../utils/logic.rkt")
+(define (eval-neuron-pure n)
   (match (neuron-kind n)
     ['input (neuron-value n)]
-    ['and  (let ((vals (map eval-neuron (neuron-inputs n))))
-             (set-neuron-value! n (t-and vals)))]
-    ['impl (let* ((pre  (eval-neuron (first  (neuron-inputs n))))
-                  (post (eval-neuron (second (neuron-inputs n)))))
-             (t-impl pre post))]))
+    ['and (apply * (map eval-neuron-pure (neuron-inputs n)))]
+    ['impl (t-impl (eval-neuron-pure (first (neuron-inputs n)))
+                   (eval-neuron-pure (second (neuron-inputs n))))]))
+(define (eval-neuron n) (define v (eval-neuron-pure n)) (set-neuron-value! n v) v)
 ```
 
 Building the network for a simple theory `P AND (P -> Q)` looks like:
@@ -110,11 +107,11 @@ After a few dozen steps the value of `q`—initially low—rises toward `1.0`, a
 
 NeurASP bridges the declarative power of Answer Set Programming (ASP) with the pattern‑recognition power of neural nets. In a NeurASP system, a neural network acts as an oracle that produces probabilities over atomic facts (e.g., object classes in an image). These probabilities are then embedded in an ASP program, whose stable models correspond to solutions that satisfy symbolic constraints. Crucially, the training objective—maximize the probability of the correct answer set—gradients flow *through* the ASP solving step back into the neural network, so the network learns to produce perceptions that are consistent with the ASP rules.
 
-The example `03-neurasp.rkt` implements a tiny simulation of this architecture. The neural component is a simple logit‑and‑sigmoid model that takes an image feature vector and outputs a probability for each atomic class:
+The example `03-neurasp.rkt` now imports `dot`/`sigmoid` from `utils/math.rkt` and `t-impl` from `utils/logic.rkt`, and seeds `red`/`circle` weights slightly stronger (`2.5`) so the toy objective’s `P(flag)` is not regressing. The neural component is:
 
 ```racket
-(define (nn-scores img ws)
-  (map (lambda (w) (sigmoid (dot img w))) ws))
+(require "../utils/math.rkt" "../utils/logic.rkt")
+(define (nn-scores img ws) (map (lambda (w) (sigmoid (dot img w))) ws))
 ```
 
 The ASP component is represented as a set of soft rules—each rule is a clause that takes a hash of atom‑to‑probability mappings and returns a satisfaction degree. For example:
@@ -143,20 +140,15 @@ NeurASP shows how to reuse mature symbolic solvers (clingo) for structured predi
 
 Inductive Logic Programming (ILP) learns logic programs from examples, but classical ILP relies on symbolic search over a discrete space of clauses and is not differentiable. Differentiable ILP (∂ILP) relaxes that discreteness: instead of committing to a single rule, it learns a *soft* selection over a set of candidate rules, with the selection expressed as a softmax over learnable weights. Inference then computes a weighted combination of candidate rule applications, a process that is end‑to‑end differentiable.
 
-The example `04-dilp.rkt` demonstrates this with a tiny "grandparent" learning task. Three candidate rules are defined as procedures that test a simple relational database:
+The example `04-dilp.rkt` now factors the repeated `for/or` chain into a `chain` helper, uses `softmax` explicitly, and removes dead bindings (`orig-loss`, `rule-weights->scores` duplication). The three candidates are:
 
 ```racket
 (define (eval-rule r db x z)
-  (cond
-    [(eq? r 'R1)  ;; parent(X,Y) ∧ parent(Y,Z) -> grandparent(X,Z)
-     (if (for/or ((y '(ann bob carl dan)))
-           (and (holds? db 'parent x y)
-                (holds? db 'parent y z)))
-         1.0 0.0)]
-    [(eq? r 'R2)  ;; parent(X,Y) ∧ sibling(Y,Z) -> grandparent(X,Z)
-     ...]
-    [(eq? r 'R3)  ;; sibling(X,Y) ∧ parent(Y,Z) -> grandparent(X,Z)
-     ...]))
+  (define (chain rel1 rel2)
+    (for/or ([y '(ann bob carl dan)]) (and (holds? db rel1 x y) (holds? db rel2 y z))))
+  (case r [(R1) (if (chain 'parent 'parent) 1.0 0.0)]
+          [(R2) (if (chain 'parent 'sibling) 1.0 0.0)]
+          [(R3) (if (chain 'sibling 'parent) 1.0 0.0)]))
 ```
 
 Given rule weights, inference computes a softmax over the weights and produces a weighted sum of the candidate scores:
@@ -176,7 +168,7 @@ Training minimizes a mean‑squared‑error loss between the inferred score and 
 
 ## Running the Examples
 
-All four programs run with a stock Racket installation and no external packages:
+All four are explicit-`provide` modules with `(module+ main ...)`/`(module+ test ...)`; `require` is silent:
 
 ```bash
 cd source-code/06-neurosymbolic-architectures
@@ -184,6 +176,7 @@ racket 01-logic-tensor-network.rkt
 racket 02-logical-neural-network.rkt
 racket 03-neurasp.rkt
 racket 04-dilp.rkt
+raco test .
 ```
 
 Each output narrates the architectural idea in miniature: the LTN prints its KB‑satisfaction before and after ascent; the LNN prints its network output and how a belief neuron is updated; NeurASP prints the satisfaction of its soft rules and the probability change of a derived atom; and ∂ILP prints its learning loss and the final softmax over rule templates.

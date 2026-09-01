@@ -2,7 +2,7 @@
 
 Previous chapters showed how to build synthesis systems that learn, reason, and compose. This chapter asks a different question: how do we know whether those systems are actually any good? Benchmarks and evaluation frameworks are the bridge between the research program of program synthesis and the broader ambition of artificial general intelligence (AGI). A synthesizer that solves one curated example is interesting; a synthesizer that solves a battery of tasks with a measurable generalization gap is interesting *and* trustworthy.
 
-The examples in this chapter are in `source-code/09-benchmarks-evaluation-agi/` and are written in plain Racket so that the harnesses and metrics are visible rather than tucked inside a benchmarking library. They build up four ideas: a framework for reporting per-task metrics, an ARC-style task for testing abstraction, a SCAN-style benchmark for compositional generalization, and a leaderboard that compares learning strategies by their generalization gap.
+The examples are in `source-code/09-benchmarks-evaluation-agi/` and expose their harnesses in plain Racket. Each file now uses explicit `provide`, `(module+ main ...)`/`(module+ test ...)`, and a `struct result` with named fields; `expand-command` raises a contract error on unknown tokens, and `synth->fn` distinguishes `no-program` (no coverage) from `0.0` accuracy.
 
 ## Evaluating General Intelligence: Per-Task Metrics
 
@@ -113,13 +113,13 @@ ARC tests *novelty* (a rule never seen before); SCAN and similar benchmarks test
 
 The example `03-compositional-benchmark.rkt` builds a 1-D SCAN analogue. Commands are sequences of atoms from `{walk look jump run}` combined with `and` (sequencing) and `twice` (repetition). The training set covers only short commands (length ≤ 2 tokens of meaning); the test set requires longer compositions such as `(walk and look) twice`, which expects the output `(walk look walk look)`.
 
-Two synthesizers are compared. The **length-bounded synthesizer** expands only the first two tokens of the input and is therefore structurally incapable of producing the four-element test outputs:
+Two synthesizers are compared. The **length-bounded synthesizer** now filters to known commands before expanding, so `and`/`twice` no longer silently vanish; it still fails structurally because it truncates to two tokens:
 
 ```racket
 (define (length-bounded-synth tokens bounded)
-  (if (<= (length tokens) bounded)
-      (expand-command tokens)
-      (expand-command (take tokens bounded))))
+  (define known (filter (lambda (t) (assoc t command-table)) tokens))
+  (if (<= (length tokens) bounded) (expand-command known) (expand-command (take known bounded))))
+;; expand-command now raises on unknown tokens: (expand-command '(foo)) => contract error
 ```
 
 The **compositional synthesizer** is a small recursive parser for the grammar
@@ -151,9 +151,15 @@ The final example aggregates these ideas into a small leaderboard. We run three 
 - **Simple grammar** enumerates `{x, 1, 2, 3, x+1, 2x, 3x}` — enough for identity and double but not square.
 - **Rich grammar** adds `x*x`, `2x+1`, and `x*x + x`.
 
-The leaderboard printing function computes per-task accuracy and averages:
+Dead `parse-tokens` is removed; `eval-program` and `parse-expr` now signal errors on unknown symbols instead of returning `()`.
+
+The leaderboard printing function computes per-task accuracy and averages, now tagging `no-coverage` when no program was found (draft conflated it with `0.0`):
 
 ```racket
+(define (synth->fn result)
+  (cond [(procedure? result) result]
+        [(or (symbol? result) (list? result) (number? result)) (lambda (x) (eval-linear result x))]
+        [(not result) (lambda (x) 'no-program)]))
 (define (display-results label runs)
   (displayln (format "--- ~a ---" label))
   (for ((r runs))
@@ -198,6 +204,7 @@ racket 01-evaluation-framework.rkt
 racket 02-arc-style-task.rkt
 racket 03-compositional-benchmark.rkt
 racket 04-generalization-gap-leaderboard.rkt
+raco test .
 ```
 
 Each prints a narrated trace: per-task metrics for the evaluation framework, the unique reverse-rule and its held-out prediction for ARC, the contrast between bounded and compositional parsing for SCAN, and the three-strategy leaderboard for the generalization gap.
