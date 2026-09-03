@@ -2,7 +2,7 @@
 
 *Part I — Foundations of Symbolic AI and Program Synthesis.*
 
-Symbolic reasoning forms the bedrock of classical artificial intelligence. Before statistical methods dominated the landscape, AI researchers built systems that manipulated explicit symbols according to formal rules. This chapter introduces the fundamental concepts that underpin symbolic AI and explains why these ideas remain essential for building systems capable of genuine reasoning.
+Symbolic reasoning forms the bedrock of classical artificial intelligence. Before statistical and neural network based methods dominated the landscape, AI researchers built systems that manipulated explicit symbols according to formal rules. This chapter introduces the fundamental concepts that underpin symbolic AI and explains why these ideas remain essential for building systems capable of genuine reasoning.
 
 All code examples for this chapter are in `source-code/01-introduction-to-symbolic-reasoning/`. Each example is a self-contained Racket module that you can run directly to see the concepts in action. Later chapters share small helpers (string, math, logic, and expression evaluation) factored into `source-code/utils/`; the final section of this chapter, *Shared Utilities*, gives that module map once you have seen the examples that use it.
 
