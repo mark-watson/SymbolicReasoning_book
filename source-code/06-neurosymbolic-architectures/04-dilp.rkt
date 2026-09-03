@@ -4,7 +4,7 @@
 ;;; Softmax over R1,R2,R3; gradient descent on MSE
 
 (provide db db-parent db-sibling
-         holds? eval-rule
+         holds? eval-rule db-constants
          infer-grandparent
          loss grad learn softmax
          the-db positives negatives)
@@ -18,9 +18,16 @@
                  [(sibling) (db-sibling db)]))
        #t))
 
+;; The constants that intermediate variables (y) range over, derived from
+;; the database so new facts add their people automatically.
+(define (db-constants db)
+  (remove-duplicates
+   (append (append-map (lambda (p) (list (car p) (cdr p))) (db-parent db))
+           (append-map (lambda (p) (list (car p) (cdr p))) (db-sibling db)))))
+
 (define (eval-rule r db x z)
   (define (chain rel1 rel2)
-    (for/or ([y '(ann bob carl dan)])
+    (for/or ([y (db-constants db)])
       (and (holds? db rel1 x y) (holds? db rel2 y z))))
   (case r
     [(R1) (if (chain 'parent 'parent) 1.0 0.0)]
@@ -82,4 +89,6 @@
   (check-true (holds? the-db 'parent 'ann 'bob))
   (check-false (holds? the-db 'parent 'ann 'dan))
   (check-true (> (first (softmax (learn 100 0.2))) 0.8))
-  (check-true (< (loss (learn 100 0.2)) (loss '(0.0 0.0 0.0)))))
+  (check-true (< (loss (learn 100 0.2)) (loss '(0.0 0.0 0.0))))
+  ;; Intermediate-variable domain derives from the database
+  (check-equal? (sort (db-constants the-db) symbol<?) '(ann bob carl dan)))

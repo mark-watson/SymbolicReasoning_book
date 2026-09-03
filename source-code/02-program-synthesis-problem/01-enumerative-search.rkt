@@ -78,7 +78,9 @@
   (display "  Count (deduped): ") (displayln (length progs-3))
 
   (displayln "")
-  (displayln "Search for constant that matches f(0)=0 only:")
+  (displayln "Search for the constant matching a one-point spec ((0 0)):")
+  (displayln "  The input slot is vestigial in this chapter; only the")
+  (displayln "  output 0 constrains the constant.")
   (displayln (bottom-up-search '((0 0)) 2))
 
   (displayln "")

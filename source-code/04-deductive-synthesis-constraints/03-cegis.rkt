@@ -38,19 +38,21 @@
   (for/first ([x '(0 1 2 3 4 5)] #:when (not (= (eval-expr candidate x) (spec x))))
     x))
 
-(define (cegis max-rounds #:seed [seed '((0 . 0))])
+;; CEGIS loop; #f => failed. Traces print only when #:trace?, so tests and
+;; library use stay quiet.
+(define (cegis max-rounds #:seed [seed '((0 . 0))] #:trace? [trace? #t])
   (let loop ([examples seed] [round 1])
-    (displayln (format "--- Round ~a ---" round))
-    (displayln (format "Examples so far: ~a" examples))
+    (when trace? (displayln (format "--- Round ~a ---" round)))
+    (when trace? (displayln (format "Examples so far: ~a" examples)))
     (define candidate (synthesize examples 2))
-    (displayln (format "Candidate: ~a" candidate))
+    (when trace? (displayln (format "Candidate: ~a" candidate)))
     (define cex (and candidate (verify candidate)))
     (cond
-      [(not candidate) (displayln "No candidate fits current examples.") #f]
-      [(not cex) (displayln "Verifier: no counter-example found. CORRECT.") candidate]
-      [(> round max-rounds) (displayln "Round limit reached.") #f]
+      [(not candidate) (when trace? (displayln "No candidate fits current examples.")) #f]
+      [(not cex) (when trace? (displayln "Verifier: no counter-example found. CORRECT.")) candidate]
+      [(> round max-rounds) (when trace? (displayln "Round limit reached.")) #f]
       [else
-       (displayln (format "Verifier: counter-example input x = ~a" cex))
+       (when trace? (displayln (format "Verifier: counter-example input x = ~a" cex)))
        (loop (append examples (list (cons cex (* 2 cex)))) (+ round 1))])))
 
 (module+ main
@@ -77,4 +79,4 @@
   (check-equal? (synthesize '((0 . 0) (1 . 2)) 2) '(+ x x))
   (check-false (verify '(+ x x)))
   (check-equal? (verify 'x) 1)
-  (check-not-false (cegis 10)))
+  (check-not-false (cegis 10 #:trace? #f)))

@@ -6,12 +6,11 @@ The returned artifact is the whole point. It is not a table of weights and not a
 
 This book builds the machinery behind that result, and it builds it with you, in code you can read in an afternoon and run in a second. Here is the plan:
 
-- Chapters 1 and 2 lay the foundation: logic, unification, inference, knowledge representation, and a precise statement of the synthesis problem.
-- Chapters 3 and 4 give you the two classical engines. Inductive synthesis learns programs from examples with enumeration, version spaces, and evolutionary search. Deductive synthesis derives programs from specifications with proof extraction, SAT and SMT constraints, CEGIS, and syntax-guided search.
-- Chapters 5 and 6 join the engines. You will see exactly why deep learning alone cannot extrapolate or compose, then build miniature versions of four real neurosymbolic architectures: Logic Tensor Networks, Logical Neural Networks, NeurASP, and differentiable ILP.
-- Chapter 7 attacks the central problem of generalization: systems that build libraries from their own discoveries, adapt at test time, and acquire new skills autonomously.
-- Chapter 8 points the machinery at science: hypothesis generation, data-efficient equation discovery, causal reasoning, and the Kepler case study.
-- Chapter 9 asks the question that keeps the field honest: how do we know a system generalizes rather than memorizes? You will build ARC-style and SCAN-style tests and a leaderboard that reports the generalization gap.
+- Chapters 1 and 2 (Part I) lay the foundation: logic, unification, inference, knowledge representation, and a precise statement of the synthesis problem.
+- Chapters 3 and 4 (Part II) give you the two classical engines. Inductive synthesis learns programs from examples with enumeration, version spaces, and evolutionary search. Deductive synthesis derives programs from specifications with proof extraction, SAT and SMT constraints, CEGIS, and syntax-guided search.
+- Chapters 5 and 6 (Part III) join the engines. You will see exactly why deep learning alone cannot extrapolate or compose, then build miniature versions of four real neurosymbolic architectures: Logic Tensor Networks, Logical Neural Networks, NeurASP, and differentiable ILP.
+- Chapters 7 and 8 (Part IV) attack the frontier problems. Chapter 7 takes on generalization: systems that build libraries from their own discoveries, adapt at test time, and acquire new skills autonomously. Chapter 8 points the machinery at science: hypothesis generation, data-efficient equation discovery, causal reasoning, and the Kepler case study.
+- Chapter 9 (Part V) asks the question that keeps the field honest: how do we know a system generalizes rather than memorizes? You will build ARC-style and SCAN-style tests and a leaderboard that reports the generalization gap. The book closes with an appendix of essential tools (Z3, CVC5, Rosette, Sketch, clingo, LTNtorch) and where to take each chapter's ideas at full scale.
 
 Every example is a complete Racket program. The code runs on a stock installation with no external packages, and each program prints a trace of its own search, so you can watch hypotheses rise and fall rather than take results on faith. Racket earns its place here for a simple reason: a synthesizer treats programs as data, and Lisp descendants make that natural. A few dozen lines of Racket are enough to hold a real algorithm, all of it visible.
 

@@ -54,6 +54,6 @@ Racket's #lang protocol is arguably the most compelling reason to choose it for 
 
 Since Racket CS (via Chez) gives you CL-level performance, and you have access to Malt (Tensors, AD, DL functions) natively within the same runtime, Racket becomes a self-contained neuro-symbolic workshop.
 
-In Racket, you can write the symbolic synthesizer (using hygenic macros), the neural gradient flows (using Malt), and the differentiable logic (by combining them) in a single, unified file, leveraging Chez's blazing compilation for all of it.
+In Racket, you can write the symbolic synthesizer (using hygienic macros), the neural gradient flows (using Malt), and the differentiable logic (by combining them) in a single, unified file, leveraging Chez's blazing compilation for all of it.
 
 Program synthesis is hard to teach. Racket's syntax-parse and automatic hygiene allow you to focus your book on the logic of synthesis (search strategies, deductive rules, type-directed synthesis) without the book bogging down in 50 pages of explaining how to avoid variable capture. It is a more elegant, pedagogically sound vehicle for demonstrating AST generation.

@@ -1,5 +1,7 @@
 # Chapter 9: Benchmarks, Evaluation, and the Path to AGI
 
+*Part V — The Road Ahead.*
+
 Previous chapters showed how to build synthesis systems that learn, reason, and compose. This chapter asks a different question: how do we know whether those systems are actually any good? Benchmarks and evaluation frameworks are the bridge between the research program of program synthesis and the broader ambition of artificial general intelligence (AGI). A synthesizer that solves one curated example is interesting; a synthesizer that solves a battery of tasks with a measurable generalization gap is interesting *and* trustworthy.
 
 The examples are in `source-code/09-benchmarks-evaluation-agi/` and expose their harnesses in plain Racket. Each file now uses explicit `provide`, `(module+ main ...)`/`(module+ test ...)`, and a `struct result` with named fields; `expand-command` raises a contract error on unknown tokens, and `synth->fn` distinguishes `no-program` (no coverage) from `0.0` accuracy.
@@ -33,21 +35,19 @@ The benchmark suite in the example consists of five small algebraic tasks (ident
       [else (loop (cdr rest) (+ n 1))])))
 ```
 
-The harness walks each task, runs the synthesizer, and assembles per-task reports:
+The harness walks each task, runs the synthesizer, and assembles per-task reports. The full `run-task` from `01-evaluation-framework.rkt`, whose `result` struct carries the four metrics:
 
 ```racket
+(struct result (name status prog train-acc test-acc size considered) #:transparent)
+
 (define (run-task task)
   (match-define (list name train test) task)
-  (define result (synthesize train))
-  (define prog (car result))
-  (define considered (cdr result))
-  (if (not prog) ...
-      (let* ((train-acc (/ (count ... ) (length train)))
-             (test-acc  (/ (count ... ) (length test))))
-        (hash 'name name 'status 'solved
-              'prog prog
-              'train-acc train-acc 'test-acc test-acc
-              'size (size prog) 'considered considered))))
+  (match-define (cons prog considered) (synthesize train))
+  (if (not prog)
+      (result name 'fail #f 0.0 0.0 0 considered)
+      (let* ([train-correct (count (lambda (ex) (= (eval-expr prog (car ex)) (cdr ex))) train)]
+             [test-correct  (count (lambda (ex) (= (eval-expr prog (car ex)) (cdr ex))) test)])
+        (result name 'solved prog (/ train-correct (length train)) (/ test-correct (length test)) (size prog) considered))))
 ```
 
 Running the example produces a per-task report and an aggregate summary:
@@ -153,22 +153,23 @@ The final example aggregates these ideas into a small leaderboard. We run three 
 
 Dead `parse-tokens` is removed; `eval-program` and `parse-expr` now signal errors on unknown symbols instead of returning `()`.
 
-The leaderboard printing function computes per-task accuracy and averages, now tagging `no-coverage` when no program was found (draft conflated it with `0.0`):
+The leaderboard printing function computes per-task accuracy and averages, and `synth->fn` distinguishes a failed synthesis (`no-program`, tagged `no-coverage` in the report) from a program that scores `0.0`:
 
 ```racket
 (define (synth->fn result)
   (cond [(procedure? result) result]
         [(or (symbol? result) (list? result) (number? result)) (lambda (x) (eval-linear result x))]
         [(not result) (lambda (x) 'no-program)]))
+
 (define (display-results label runs)
   (displayln (format "--- ~a ---" label))
-  (for ((r runs))
-    (displayln (format "  ~a: train ~a  test ~a"
+  (for ([r runs])
+    (define tag (if (not (result-prog r)) "no-coverage" (format "prog ~a" (result-prog r))))
+    (displayln (format "  ~a: train ~a  test ~a  ~a"
                        (result-name r)
                        (exact->inexact (result-train-acc r))
-                       (exact->inexact (result-test-acc r)))))
-  (define gavg (lambda (acc)
-                 (/ (apply + (map acc runs)) (length runs))))
+                       (exact->inexact (result-test-acc r))
+                       tag)))
   ...)
 ```
 
@@ -183,12 +184,12 @@ The output is a clean demonstration of what each metric means:
 --- Simple grammar  (no square) ---
   identity: train 1.0  test 1.0
   double: train 1.0  test 1.0
-  square: train 0.0  test 0.0
+  square: train 0.0  test 0.0  no-coverage
   avg train-acc = 0.67, avg test-acc = 0.67, avg gap = 0.0
 --- Rich grammar    (with square) ---
   identity: train 1.0  test 1.0
   double: train 1.0  test 1.0
-  square: train 1.0  test 1.0
+  square: train 1.0  test 1.0  prog (* x x)
   avg train-acc = 1.0, avg test-acc = 1.0, avg gap = 0.0
 ```
 

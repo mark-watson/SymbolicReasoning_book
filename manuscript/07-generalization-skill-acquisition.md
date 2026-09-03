@@ -1,5 +1,7 @@
 # Chapter 7: Generalization & Autonomous Skill Acquisition
 
+*Part IV — Advanced Topics & Applications.*
+
 A synthesis system is truly useful only when it can go beyond the specific examples it was trained on. This chapter examines how to build systems that generalize systematically, reuse learned abstractions, adapt online at test time, and acquire skills autonomously. The code is in `source-code/07-generalization-skill-acquisition/` and is now explicit-`provide` modules with `(module+ main ...)`/`(module+ test ...)`; `skill-library` is a parameter so `require` is silent, and `synthesize-skill` no longer takes an unused `max-depth` argument.
 
 ## Generalizing Beyond the Training Distribution
@@ -43,15 +45,20 @@ The example `02-compositional-abstractions.rkt` demonstrates macro learning, a s
 (define task2 '((0 . 0) (1 . 2) (2 . 4)))      ;; double
 ```
 
-The synthesizer enumerates compositions of the primitives up to a given length:
+The synthesizer enumerates compositions of the primitives up to a given length, from `02-compositional-abstractions.rkt` in full:
 
 ```racket
 (define (synthesize examples max-depth atoms)
-  (let loop ((depth 1))
-    ...
-    (let ((candidates
-           (apply cartesian-product (make-list depth atoms))))
-      ...)))
+  ;; max-depth counts composed steps; candidates at depth d = |atoms|^d
+  (let loop ([depth 1])
+    (if (> depth max-depth) #f
+        (let* ([candidates (apply cartesian-product (make-list depth atoms))]
+               [found (findf (lambda (prog)
+                               (andmap (lambda (ex)
+                                         (= (eval-program (map name->fn prog) (car ex)) (cdr ex)))
+                                       examples))
+                             candidates)])
+          (or found (loop (+ depth 1)))))))
 ```
 
 For task1 it discovers `(inc)`, and for task2 it discovers `(double)`. After these solutions are found, the system notices that the composition `double ∘ inc` is useful. It then adds a macro `macro-inc-then-double` to the library and can solve a harder task3—where the correct behavior is `double ∘ inc`—with a single lookup, even though the program space without the macro would require a search of depth two.

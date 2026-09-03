@@ -50,7 +50,7 @@ Programs of size 2:  Sample: (0 1 2 3 4 5 (+ 0 0) (* 0 0) (- 0 0) ...)
 Programs of size 3:  Count (deduped): 38994
 ```
 
-The chapter is honest about the constant-only limit. `(+ x x)` cannot be expressed here, so the full spec `f(0)=0, f(1)=2, f(2)=4, f(3)=6` fails and only a single-point spec like `((0 0))` succeeds. Chapter 3 adds `x` and the example then solves `(+ x x)`.
+The chapter is honest about the constant-only limit. `(+ x x)` cannot be expressed here, so the full spec `f(0)=0, f(1)=2, f(2)=4, f(3)=6` fails and only a single-point spec like `((0 0))` succeeds. For that demo the input slot of the example pair is vestigial — the constant language ignores it; only the output `0` constrains the search. Chapter 3 adds `x` and the example then solves `(+ x x)`.
 
 Clever pruning, type-directed search, and equivalence reduction make enumeration practical for small domains, but without them the cost is exponential, which is the point the chapter makes visible.
 

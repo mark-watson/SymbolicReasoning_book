@@ -72,25 +72,25 @@
      (replace-random-subtree p1 sub2)]
     [else (random-ref (list p1 p2))]))
 
-;; Genetic Programming loop
-(define (gp population examples generations)
+;; Genetic Programming loop. Generation traces print only when #:trace?.
+(define (gp population examples generations #:trace? [trace? #t])
   (let loop ([gen 0] [pop population])
     (if (>= gen generations)
         (argmax (lambda (p) (fitness p examples)) pop)
         (let* ([scored (sort pop > #:key (lambda (p) (fitness p examples)))]
                [best (car scored)]
                [best-fitness (fitness best examples)])
-          (displayln (format "Generation ~a: Best fitness = ~a (prog ~a)" gen best-fitness best))
+          (when trace?
+            (displayln (format "Generation ~a: Best fitness = ~a (prog ~a)" gen best-fitness best)))
           (if (= best-fitness 0)
               best
               (let* ([parents (take scored (min 10 (length scored)))]
-                     [elites (map (lambda (x) x) parents)]
                      [offspring
                       (for/list ([_ (in-range 10)])
-                        (define p1 (random-ref elites))
-                        (define p2 (random-ref elites))
+                        (define p1 (random-ref parents))
+                        (define p2 (random-ref parents))
                         (mutate (crossover p1 p2)))])
-                (loop (+ gen 1) (append elites offspring))))))))
+                (loop (+ gen 1) (append parents offspring))))))))
 
 (module+ main
   (displayln "=== Genetic Programming Example ===")

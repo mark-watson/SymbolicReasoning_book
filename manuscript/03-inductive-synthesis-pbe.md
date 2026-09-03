@@ -1,5 +1,7 @@
 # Chapter 3: Inductive Synthesis & Programming by Example (PBE)
 
+*Part II — Core Methods in Program Synthesis.*
+
 Programming by Example (PBE) represents one of the most intuitive approaches to synthesis: users give input-output pairs, the system infers a program. This chapter moves from the constant-only language of Chapter 2 to grammars with variables and shows three ways to search them—version spaces, evolutionary search, and FlashFill-style demonstration—using the same factored helpers as the rest of the book.
 
 All code for this chapter is in `source-code/03-inductive-synthesis-pbe/`. `string-reverse` is imported from `source-code/utils/string.rkt`; demos are in `(module+ main ...)` and checks in `(module+ test ...)`.
@@ -81,7 +83,7 @@ The demo filters `hello -> olleh` to `(reverse)` and `HELLO -> hello` to `(to-lo
           (loop (+ gen 1) (append parents (for/list ([_ parents]) (mutate (crossover (random-ref parents) (random-ref parents))))))))))
 ```
 
-The file now also evolves: `fitness` threads the input via `(hash 'x input)`, `evolve` keeps the top half as parents and breeds offspring via `crossover` + `mutate`, and the printed trace shows convergence to fitness `0` with `(- (+ x x) (* 0 x))` (i.e., `(+ x x)`).
+The file now also evolves: `fitness` threads the input via `(hash 'x input)`, `evolve` keeps the top half as parents and breeds offspring via `crossover` + `mutate`, and a fixed `(random-seed 3)` at the top of the file makes the trace reproducible. The printed run shows the population already containing a fitness-`0` champion at generation 0 — `(- (* 3 x) (* 1 x))`, i.e. `3x - x = 2x` — which then survives elitist selection unchanged through generation 5. That is worth pausing on: with a population of only 20 random depth-2 programs over `{+, *, -}` and leaves including `x`, the right equivalence class often shows up immediately, and evolution's job becomes *keeping* it rather than discovering it. Later runs of the mutate/crossover demo at the end of the file show the operators preserving program shape.
 
 ## FlashFill Demo
 

@@ -61,12 +61,21 @@
 
   (newline)
   (displayln "=== Part 2: Extrapolation beyond training data ===")
-  (define train-subset '(((0 0) 0) ((0 1) 1) ((1 0) 1)))
+  ;; AND-like data: train on all points where the rule says 0; the only
+  ;; positive case (1 1) is held out. Trained this way the perceptron
+  ;; never moves its weights off zero and predicts 0 for (1 1): it has
+  ;; no mechanism to infer the unseen positive case.
+  (define train-subset '(((0 0) 0) ((0 1) 0) ((1 0) 0)))
   (define ws-sub (train-perceptron train-subset '(0 0 0) 20))
-  (displayln "Train on (0,0),(0,1),(1,0), test on held-out (1,1)=1:")
-  (show-preds ws-sub '(((1 1) 1)))
+  (displayln "Train on (0,0),(0,1),(1,0) of AND, test on held-out (1,1)=1:")
+  (displayln (format "Learned weights: ~a" ws-sub))
   (define pred-held (perceptron (cons 1 '(1 1)) ws-sub))
-  (displayln (format "Held-out prediction ~a vs true 1 -> ~a" pred-held (if (= pred-held 1) "OK" "FAIL (extrapolation brittle)")))
+  (show-preds ws-sub '(((1 1) 1)))
+  (displayln (format "Held-out prediction ~a vs true 1 -> ~a"
+                     pred-held
+                     (if (= pred-held 1) "OK" "FAIL (never saw a positive, cannot extrapolate)")))
+  (displayln "Every training point was negative, so no update ever fired;")
+  (displayln "the model has no way to know any input is positive.")
 
   (newline)
   (displayln "=== Part 3: XOR is not linearly separable ===")
@@ -80,4 +89,8 @@
   (require rackunit)
   (check-equal? (accuracy (train-perceptron linear-data '(0 0 0) 20) linear-data) 1)
   (check-equal? (accuracy (train-perceptron xor-data '(0 0 0) 50) xor-data) 1/2)
-  (check-equal? (dot '(1 2) '(3 4)) 11))
+  (check-equal? (dot '(1 2) '(3 4)) 11)
+  ;; Held-out AND case: never-seen positive is predicted negative
+  (check-equal? (perceptron (cons 1 '(1 1))
+                            (train-perceptron '(((0 0) 0) ((0 1) 0) ((1 0) 0)) '(0 0 0) 20))
+                0))

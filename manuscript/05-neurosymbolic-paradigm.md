@@ -1,5 +1,7 @@
 # Chapter 5: The Neurosymbolic Paradigm
 
+*Part III — Neurosymbolic Program Synthesis.*
+
 The previous chapter ended with a warning sign. Deductive synthesis gives beautiful guarantees, but constraint solving and theorem proving search exponentially large spaces. Purely inductive learning, by contrast, scales gracefully but learns statistical correlations without any built-in notion of correctness or compositionality. The neurosymbolic paradigm proposes to close this gap by combining the strengths of both approaches.
 
 The core observation is simple: neural networks are remarkably good at *perception* and *pattern recognition*, while symbolic systems are remarkably good at *reasoning*, *composition*, and *verification*. A neurosymbolic system couples the two. The neural side translates raw, noisy input (pixels, text, sensor signals) into structured hypotheses. The symbolic side checks those hypotheses against logical constraints, composes them with known rules, and searches for executable programs that satisfy them. Both sides can inform each other during training, and—crucially—both sides are visible in the final artifact in a way that neither a hidden state nor a symbolic trace is alone.
@@ -39,7 +41,16 @@ The first example, `01-why-deep-learning-insufficient.rkt`, makes these abstract
 
 The perceptron learns a weight vector `ws` whose dot product with the input (with a leading bias of `1`) crosses zero exactly on the training boundary. Each error triggers an additive update that shifts the hyperplane toward the misclassified point. Three experiments show the limits of this pattern.
 
-First, the perceptron fits the OR-like dataset perfectly, reaching accuracy `1` after a few passes. Second, when the network is trained only on `(0 0)`, `(0 1)`, and `(1 0)`, its prediction on the held-out `(1 1)` is checked against the true OR value `1`. The updated demo prints `Held-out prediction 1 vs true 1 -> OK` or `FAIL`, making the brittleness explicit rather than showing `?`. `dot` is now imported from `utils/math.rkt`, and the file’s `accuracy` and `show-preds` are exported with an explicit `provide`. Third, on XOR the perceptron plateaus at accuracy `1/2` no matter how many epochs it runs, because XOR is not linearly separable:
+First, the perceptron fits the OR-like dataset perfectly, reaching accuracy `1` after twenty passes. Second, the extrapolation experiment: the network is trained on all three *negative* points of an AND dataset — `(0 0)`, `(0 1)`, and `(1 0)`, each labeled `0` — and then asked for the held-out positive case `(1 1)`. The demo prints:
+
+```
+Train on (0,0),(0,1),(1,0) of AND, test on held-out (1,1)=1:
+Learned weights: (0 0 0)
+  Input (1 1) -> predict 0, true 1
+Held-out prediction 0 vs true 1 -> FAIL (never saw a positive, cannot extrapolate)
+```
+
+Every training point was negative, so the perceptron rule never fired a single update and the weights stayed at zero. The model has no machinery for guessing that some unseen input pattern could be positive — it can only carve up what it has seen. (`dot` is imported from `utils/math.rkt`, and the file’s `accuracy` and `show-preds` are exported with an explicit `provide`.) Third, on XOR the perceptron plateaus at accuracy `1/2` no matter how many epochs it runs, because XOR is not linearly separable:
 
 ```
 === Part 3: XOR is not linearly separable ===

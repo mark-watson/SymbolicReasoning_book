@@ -63,7 +63,7 @@
   (displayln "")
   (displayln (format "Name reversal examples: ~a" name-examples))
   (displayln (format "flash-fill result: ~a (needs split/concat)" (flash-fill name-examples)))
-  (displayln "For complex patterns, Traditional PBE uses:")
+  (displayln "For complex patterns, production PBE systems use:")
   (displayln "  - Substring extraction with regex")
   (displayln "  - Position-based indexing")
   (displayln "  - Context-aware pattern matching"))

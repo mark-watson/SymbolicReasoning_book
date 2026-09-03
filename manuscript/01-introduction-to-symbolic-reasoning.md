@@ -1,163 +1,10 @@
 # Chapter 1: Introduction to Symbolic Reasoning
 
+*Part I — Foundations of Symbolic AI and Program Synthesis.*
+
 Symbolic reasoning forms the bedrock of classical artificial intelligence. Before statistical methods dominated the landscape, AI researchers built systems that manipulated explicit symbols according to formal rules. This chapter introduces the fundamental concepts that underpin symbolic AI and explains why these ideas remain essential for building systems capable of genuine reasoning.
 
-All code examples for this chapter are in `source-code/01-introduction-to-symbolic-reasoning/`. Each example is a self-contained Racket module that you can run directly to see the concepts in action. Common helpers live in `source-code/utils/` and in the convenience aggregator `source-code/utils.rkt`.
-
-## Shared Utilities
-
-The book now factors repeated helpers into `source-code/utils/`. Earlier drafts copied the same function into many files. The factored version keeps one definition and imports it everywhere else. This saves maintenance and removes drift bugs.
-
-```
-source-code/
-  utils.rkt              ; convenience re-export
-  utils/
-    string.rkt           ; string-reverse
-    math.rkt             ; dot, sigmoid, hamming, clamp01
-    logic.rkt            ; t-and, t-and-list, t-not, t-impl
-    eval.rkt             ; eval-arith, ast-size helpers
-```
-
-The code below shows the real files. Use them as a reference for later chapters.
-
-### `utils/string.rkt`
-
-```racket
-#lang racket
-(provide string-reverse string-trim*)
-
-(define (string-reverse s)
-  (unless (string? s)
-    (raise-argument-error 'string-reverse "string?" s))
-  (list->string (reverse (string->list s))))
-```
-
-All string chapters used to define their own `string-reverse`. The logic was correct but four copies drifted in comments and argument checks. Now they import this one.
-
-```racket
-(require "../utils/string.rkt")
-;; later: (string-reverse "hello") => "olleh"
-```
-
-### `utils/math.rkt`
-
-```racket
-#lang racket
-(provide dot sigmoid hamming clamp01)
-
-(define (dot xs ys)
-  (unless (= (length xs) (length ys))
-    (raise-argument-error 'dot "equal-length lists" 0 xs ys))
-  (apply + (map * xs ys)))
-
-(define (sigmoid x) (/ 1.0 (+ 1.0 (exp (- x)))))
-
-(define (hamming xs ys)
-  (length (filter (lambda (p) (not (equal? (car p) (cdr p))))
-                  (map cons xs ys))))
-
-(define (clamp01 x) (max 0.0 (min 1.0 x)))
-```
-
-`dot` and `sigmoid` appeared in three places in Chapter 6 (LTN, NeurASP, dILP). `hamming` appeared in the digit recognition example in Chapter 5. `clamp01` appeared in the causal model in Chapter 8. Each had small differences in error handling. The utils version raises a clear error when vector lengths differ, which is the most common mistake when adding a new embedding dimension.
-
-Import it where needed:
-
-```racket
-(require "../utils/math.rkt")
-;; later: (dot '(1 2) '(3 4)) => 11
-```
-
-In files two levels deep the require is `../../utils/math.rkt` or `../utils/math.rkt`. The aggregator shortens that.
-
-### `utils/logic.rkt`
-
-```racket
-#lang racket
-(provide t-and t-and-list t-not t-impl)
-
-(define (t-and x y) (* x y))
-(define (t-and-list xs) (if (null? xs) 1.0 (apply * xs)))
-(define (t-not x) (- 1.0 x))
-(define (t-impl x y) (+ 1.0 (- x) (* x y)))
-```
-
-Chapters 5 and 6 each defined product t-norms and Reichenbach implication separately. The definitions were the same but some used `t-and` for two args and others defined `t-and` for a list. The utils module provides both. `t-and-list` returns `1.0` for the empty case, which matches the logical identity for universal quantification over an empty domain.
-
-```racket
-(require "../utils/logic.rkt")
-;; later: (t-impl 0.9 0.2) => 0.28  ; implication is weak when premise is strong and conclusion is weak
-```
-
-### `utils/eval.rkt`
-
-```racket
-#lang racket
-(provide eval-arith eval-arith-env eval-expr-with-x ast-size ast-size-extended)
-
-(define (eval-arith expr env)
-  (match expr
-    [(? number? n) n]
-    [(? symbol? s) (hash-ref env s s)]
-    [`(+ ,a ,b) (+ (eval-arith a env) (eval-arith b env))]
-    [`(- ,a ,b) (- (eval-arith a env) (eval-arith b env))]
-    [`(* ,a ,b) (* (eval-arith a env) (eval-arith b env))]
-    [_ (raise-argument-error 'eval-arith "arith expr" expr)]))
-
-(define (ast-size e)
-  (match e
-    [(or (? number? ) (? symbol?)) 1]
-    [`(,(or '+ '- '*) ,a ,b) (+ 1 (ast-size a) (ast-size b))]
-    [_ 1]))
-```
-
-At least ten chapter files evaluated arithmetic s-expressions over `+`, `*`, `-`, and a variable `x`. The code was copied with small drift in error messages and in how `x` was bound (sometimes a hash, sometimes an alist). `eval-arith` binds `x` through a hash table. Helpers like `ast-size` count nodes for parsimony pressure in Chapters 8 and 9.
-
-Not every evaluator collapses to one function. Files that need division, `sq`, `pow2`, `pow3`, or `ite` extend `eval-arith` locally. That is intentional: utils holds the common core, chapter files hold the grammar-specific extension.
-
-### `utils.rkt` Aggregator
-
-```racket
-#lang racket
-(provide (all-from-out "utils/string.rkt")
-         (all-from-out "utils/math.rkt")
-         (all-from-out "utils/logic.rkt")
-         (all-from-out "utils/eval.rkt"))
-
-(require "utils/string.rkt" "utils/math.rkt" "utils/logic.rkt" "utils/eval.rkt")
-```
-
-If a chapter file needs helpers from several utils, it can import the aggregator with one line:
-
-```racket
-(require "../utils.rkt")        ; from source-code/01-.../file.rkt
-(require "../../utils.rkt")     ; from deeper paths
-;; or the directory form
-(require "../utils/math.rkt")   ; single concern
-```
-
-### Why Chapter 1 Owns This Section
-
-Chapter 1 is where the book first asks you to run code. It is the right place to show where shared code lives and how to import it. The pattern after this chapter is the same everywhere:
-
-- Library code at the top, with an explicit `provide` list.
-- `require` for the utils it actually uses, plus `racket/match`, `racket/dict`, or `racket/set` where needed.
-- Demo and print statements inside `(module+ main ...)`, so `(require "file.rkt")` does not produce output.
-- Unit tests inside `(module+ test ...)` with `rackunit`, runnable as `raco test .`.
-
-### How to Use the Utils in Your Own Code
-
-Try a small REPL exercise. From `source-code/01-introduction-to-symbolic-reasoning/`:
-
-```racket
-(require "../utils/string.rkt" "../utils/math.rkt" "../utils/logic.rkt")
-
-(string-reverse "live")        ; => "evil"
-(dot '(0.9 0.1) '(0.6 0.6))   ; => 0.6
-(t-impl 0.9 0.2)               ; => 0.28
-```
-
-Each utils file raises `exn:fail:contract` with a named argument on misuse, so mistakes point to the caller rather than to a deep stack trace.
+All code examples for this chapter are in `source-code/01-introduction-to-symbolic-reasoning/`. Each example is a self-contained Racket module that you can run directly to see the concepts in action. Later chapters share small helpers (string, math, logic, and expression evaluation) factored into `source-code/utils/`; the final section of this chapter, *Shared Utilities*, gives that module map once you have seen the examples that use it.
 
 ## Propositional and Predicate Logic
 
@@ -284,12 +131,30 @@ Many AI problems can be framed as search through a space of possible states or s
 
 ### Search Algorithms (`05-search-algorithms.rkt`)
 
-The updated version factors BFS and DFS into one search with a combiner:
+BFS and DFS are one search parameterized by a combiner. The full loop from `05-search-algorithms.rkt`:
 
 ```racket
 (define (search start goal combiner #:trace? [trace? #f])
-  (cond [(equal? start goal) (list start)]
-        [else (let loop ([frontier (list (list start))] [visited (make-hash)]) ...)]))
+  (cond
+    [(equal? start goal) (list start)]
+    [else
+     (define visited (make-hash))
+     (define (mark-visited! n) (hash-set! visited n #t))
+     (define (visited? n) (hash-has-key? visited n))
+     (mark-visited! start)
+     (let loop ([frontier (list (list start))])
+       (cond
+         [(null? frontier) #f]
+         [else
+          (define path (car frontier))
+          (define node (car path))
+          (define rest (cdr frontier))
+          (if (equal? node goal)
+              (reverse path)
+              (let* ([nbs (filter-not visited? (get-neighbors node))]
+                     [new-paths (map (lambda (n) (cons n path)) nbs)])
+                (for-each mark-visited! nbs)
+                (loop (combiner new-paths rest))))]))]))
 
 (define (bfs start goal #:trace? [trace? #f])
   (search start goal (lambda (new rest) (append rest new)) #:trace? trace?))
@@ -298,7 +163,7 @@ The updated version factors BFS and DFS into one search with a combiner:
   (search start goal (lambda (new rest) (append new rest)) #:trace? trace?))
 ```
 
-The graph is noted as directed, `search` handles `start == goal` without looping, and printing is opt-in via `#:trace?`. Path display uses `(reverse path)` so logs read forward.
+Paths grow by consing onto the front, so the found path is reversed on return and traces read forward. The graph is directed, `search` handles `start == goal` without looping, and printing is opt-in via `#:trace?`. The combiner is the whole difference: BFS appends new paths after the old frontier (a queue), DFS puts them in front (a stack).
 
 ### Constraint Satisfaction (`06-constraint-satisfaction.rkt`)
 
@@ -322,6 +187,50 @@ The CSP solver now uses immutable hashes and `for/or`:
 ```
 
 `satisfies?` takes its constraint list as a parameter, so the same checker works for N-Queens or other CSPs. `backtrack` threads immutable hashes, which removes the stale binding bug from the mutable version. `show-solution` handles `#f`.
+
+---
+
+## Shared Utilities
+
+You may have noticed that several examples above and in later chapters need the same small functions: a string reverse, a dot product, a product t-norm, an arithmetic s-expression evaluator. Earlier drafts copied these into each file, and the copies drifted — different argument checks, different comments, one outright arity bug. The book now factors them into `source-code/utils/`, one definition each, imported everywhere else:
+
+```
+source-code/
+  utils.rkt              ; convenience re-export (see below)
+  utils/
+    string.rkt           ; string-reverse, string-trim*
+    math.rkt             ; dot, sigmoid, hamming, clamp01
+    logic.rkt            ; t-and, t-and-list, t-not, t-impl
+    eval.rkt             ; eval-arith, ast-size helpers
+```
+
+Highlights from the four modules, rather than their full source (the files themselves are short and worth reading):
+
+- `string-reverse` raises a contract error on non-strings. Four chapters import it instead of defining their own.
+- `dot` checks equal lengths before multiplying — the most common mistake when adding a new embedding dimension in Chapter 6.
+- `t-and-list` returns `1.0` for the empty case, matching the logical identity for universal quantification over an empty domain in the LTN example.
+- `eval-arith` binds variables through a hash table, ending the hash-vs-alist drift between copies; `ast-size` counts AST nodes for the parsimony scores of Chapters 8 and 9.
+
+Not every evaluator collapses to one function. Files needing division, `sq`, `pow2`, `pow3`, or `ite` extend `eval-arith` locally: utils holds the common core, chapter files hold the grammar-specific extension.
+
+If a file needs helpers from several utils at once, the aggregator re-exports all four:
+
+```racket
+(require "../utils.rkt")        ; one-line form, re-exports everything
+(require "../utils/math.rkt")   ; or single concern
+```
+
+Try it in a REPL from any chapter directory:
+
+```racket
+(require "../utils/string.rkt" "../utils/math.rkt" "../utils/logic.rkt")
+
+(string-reverse "live")        ; => "evil"
+(dot '(0.9 0.1) '(0.6 0.6))    ; => 0.6
+(t-impl 0.9 0.2)               ; => 0.28 ; weak: strong premise, weak conclusion
+```
+
+Each utils file raises `exn:fail:contract` with a named argument on misuse, so mistakes point to the caller rather than to a deep stack trace.
 
 ---
 

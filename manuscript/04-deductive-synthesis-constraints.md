@@ -4,7 +4,7 @@ The previous chapter showed how programs can be induced from input-output exampl
 
 In this chapter we explore four complementary techniques: synthesis from constructive proofs, constraint solving with SAT and SMT solvers, Counter-Example Guided Inductive Synthesis (CEGIS), and syntax-guided synthesis with grammars and sketches. Together these methods form the backbone of modern correct-by-construction program synthesis, used in systems such as Sketch, Rosette, and the SyGuS competition solvers.
 
-All code examples are in `source-code/04-deductive-synthesis-constraints/`. They are written in plain Racket so search and verification are visible. Each file now uses an explicit `provide` (e.g., `derive`, `solve-constraints`, `cegis`, `gen-int`), `racket/match`, and `(module+ main ...)`/`(module+ test ...)` so `require` is silent. String helpers are imported from `utils/string.rkt` where needed, and the `02-smt`/`03-cegis`/`04-sygus` traces note that ordering by size gives the smallest fitting program.
+All code examples are in `source-code/04-deductive-synthesis-constraints/`. They are written in plain Racket so search and verification are visible. Each file uses an explicit `provide` (e.g., `derive`, `solve-constraints`, `cegis`, `gen-int`), `racket/match`, and `(module+ main ...)`/`(module+ test ...)` so `require` is silent. A note on evaluators: you will see `eval-expr` and `eval-dsl` defined locally in each file rather than imported from `utils/eval.rkt`. That is deliberate — the grammars here differ from the shared one (CEGIS has `x` but no `-`; the SyGuS file adds `ite` and `<=` and evaluates against two variables), and Chapter 1's utils section explains the pattern: utils holds the common core, chapter files hold the grammar-specific extension. String helpers are imported from `utils/string.rkt` where needed, and the `02-smt`/`03-cegis`/`04-sygus` traces note that ordering by size gives the smallest fitting program.
 
 ## Programs from Proofs: Deductive Synthesis
 
@@ -148,7 +148,7 @@ Notice the economy of the process. The first candidate, the identity function, i
 
 CEGIS still searches a large program space. SyGuS, standardized in an annual competition, narrows that space by requiring the user to supply a grammar: a context-free description of every program the synthesizer is allowed to consider. Search then proceeds only over grammar-conformant expressions.
 
-The example `04-sygus-sketch.rkt` defines a small integer-expression grammar with conditionals and enumerates it by depth:
+The example `04-sygus-sketch.rkt` defines a small integer-expression grammar with conditionals and enumerates it by depth. Guards stay shallow — boolean conditions are comparisons of depth-0 integer expressions only, so `gen-bool` takes no depth argument:
 
 ```racket
 (define (gen-int depth)
@@ -162,7 +162,7 @@ The example `04-sygus-sketch.rkt` defines a small integer-expression grammar wit
        (for*/list ((a (gen-int (- depth 1)))
                    (b (gen-int (- depth 1))))
          `(- ,a ,b))
-       (for*/list ((c (gen-bool 0))
+       (for*/list ((c (gen-bool))
                    (t (gen-int (- depth 1)))
                    (e (gen-int (- depth 1))))
          `(ite ,c ,t ,e)))))

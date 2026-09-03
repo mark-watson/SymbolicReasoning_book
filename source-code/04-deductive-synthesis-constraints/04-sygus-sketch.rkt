@@ -12,7 +12,9 @@
 
 (require racket/match)
 
-;; Grammar keeps ite guards shallow (gen-bool 0) to bound enumeration
+;; Grammar keeps ite guards shallow to bound enumeration: boolean
+;; conditions are comparisons of depth-0 integer expressions only, so
+;; gen-bool takes no depth argument.
 (define (gen-int depth)
   (if (= depth 0)
       '(x y 0 1)
@@ -20,10 +22,10 @@
        '(x y 0 1)
        (for*/list ([a (gen-int (- depth 1))] [b (gen-int (- depth 1))]) `(+ ,a ,b))
        (for*/list ([a (gen-int (- depth 1))] [b (gen-int (- depth 1))]) `(- ,a ,b))
-       (for*/list ([c (gen-bool 0)] [t (gen-int (- depth 1))] [e (gen-int (- depth 1))]) `(ite ,c ,t ,e)))))
+       (for*/list ([c (gen-bool)] [t (gen-int (- depth 1))] [e (gen-int (- depth 1))]) `(ite ,c ,t ,e)))))
 
-(define (gen-bool depth)
-  (for*/list ([a (gen-int depth)] [b (gen-int depth)]) `(<= ,a ,b)))
+(define (gen-bool)
+  (for*/list ([a (gen-int 0)] [b (gen-int 0)]) `(<= ,a ,b)))
 
 (define (eval-dsl e x y)
   (match e

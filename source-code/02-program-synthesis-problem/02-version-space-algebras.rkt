@@ -24,20 +24,27 @@
 (define (singleton prog) (list 'singleton prog))
 
 ;; Intersection: programs in both spaces
+;; NB: singleton checks come before the concrete-list check, because a
+;; singleton (list 'singleton p) is itself a list and would otherwise be
+;; treated as a two-element program list.
 (define (vs-intersect vs1 vs2)
   (cond
     [(eq? vs1 empty-space) empty-space]
     [(eq? vs2 empty-space) empty-space]
     [(eq? vs1 universal-space) vs2]
     [(eq? vs2 universal-space) vs1]
+    ;; Singleton handling: treat singleton as one-element list
+    [(and (pair? vs1) (eq? (car vs1) 'singleton))
+     (cond
+       [(in-space? (cadr vs1) vs2) vs1]
+       [else empty-space])]
+    [(and (pair? vs2) (eq? (car vs2) 'singleton))
+     (cond
+       [(in-space? (cadr vs2) vs1) vs2]
+       [else empty-space])]
     ;; Both are concrete lists of programs (simplified algebra)
     [(and (list? vs1) (list? vs2))
      (filter (lambda (p) (member p vs2)) vs1)]
-    ;; Singleton handling: treat singleton as one-element list
-    [(and (pair? vs1) (eq? (car vs1) 'singleton))
-     (if (member (cadr vs1) vs2) vs1 empty-space)]
-    [(and (pair? vs2) (eq? (car vs2) 'singleton))
-     (if (member (cadr vs2) vs1) vs2 empty-space)]
     [else empty-space]))
 
 ;; Union: programs in either space
@@ -137,4 +144,10 @@
   (check-false (in-space? 1 empty-space))
   (check-equal? (vs-intersect universal-space '(1 2)) '(1 2))
   (check-equal? (vs-union empty-space '(1 2)) '(1 2))
-  (check-equal? (add-example '(0 2) '(1 2 3)) '(2)))
+  (check-equal? (add-example '(0 2) '(1 2 3)) '(2))
+  ;; Singleton spaces are handled explicitly, not as program lists
+  (check-equal? (vs-intersect (singleton 2) '(1 2 3)) (singleton 2))
+  (check-equal? (vs-intersect (singleton 9) '(1 2 3)) empty-space)
+  (check-equal? (vs-intersect '(1 2 3) (singleton 2)) (singleton 2))
+  (check-false (in-space? '(1 2) (singleton 2)))
+  (check-true (in-space? 2 (singleton 2))))

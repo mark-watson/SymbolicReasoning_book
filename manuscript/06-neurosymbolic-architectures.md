@@ -51,15 +51,23 @@ and then generalizing it to the whole domain with a product over all pairs:
      (rule-satisfaction x y))))
 ```
 
-Because every step is differentiable, we can perform gradient ascent on the parameters to maximize the KB satisfaction:
+Because every step is differentiable, we can perform gradient ascent on the parameters to maximize the KB satisfaction. The full gradient code from `01-logic-tensor-network.rkt` — a central finite difference over each weight of a predicate, carefully restoring the original weights before returning:
 
 ```racket
 (define (numeric-grad p)
-  ;; finite difference on each weight in p's weight vector
-  ...)
+  (define orig (pred-weights p))
+  (for/list ([i (in-range (length orig))])
+    (define w+ (list-set orig i (+ (list-ref orig i) h)))
+    (define w- (list-set orig i (- (list-ref orig i) h)))
+    (set-pred-weights! p w+)
+    (define sat+ (kb-satisfaction))
+    (set-pred-weights! p w-)
+    (define sat- (kb-satisfaction))
+    (set-pred-weights! p orig)
+    (/ (- sat+ sat-) (* 2 h))))
 ```
 
-The output shows the KB satisfaction rise after a hundred ascent steps, with the predicate weights moving in the direction preferred by the rule. LTNs have been used for knowledge‑base completion, semantic image interpretation, and any setting where a structured set of logical constraints must be reconciled with noisy learned models.
+The output shows the KB satisfaction rise after a hundred ascent steps (from about `0.148` to `0.249`), with the predicate weights moving in the direction preferred by the rule. LTNs have been used for knowledge‑base completion, semantic image interpretation, and any setting where a structured set of logical constraints must be reconciled with noisy learned models. LTNs have been used for knowledge‑base completion, semantic image interpretation, and any setting where a structured set of logical constraints must be reconciled with noisy learned models.
 
 ## Logical Neural Networks (LNN)
 
@@ -93,12 +101,17 @@ Building the network for a simple theory `P AND (P -> Q)` looks like:
 (define net (neuron 'and (list p impl-node) #f))
 ```
 
-To make learning concrete, the implementation also computes a finite‑difference gradient of the network output with respect to the input neuron `q` and performs a short gradient‑ascent loop:
+To make learning concrete, the implementation also computes a finite‑difference gradient of the network output with respect to the input neuron `q` and performs a short gradient‑ascent loop. The full `neuron-grad` from `02-logical-neural-network.rkt` perturbs the target's value symmetrically and restores it afterwards — which is exactly why evaluation above is split into a pure walk; the gradient would otherwise read stale cached values:
 
 ```racket
 (define (neuron-grad net target-neuron eps)
-  ;; numeric gradient of eval-neuron wrt target-neuron
-  ...)
+  (define orig (neuron-value target-neuron))
+  (set-neuron-value! target-neuron (min 1.0 (+ orig eps)))
+  (define hi (eval-neuron-pure net))
+  (set-neuron-value! target-neuron (max 0.0 (- orig eps)))
+  (define lo (eval-neuron-pure net))
+  (set-neuron-value! target-neuron orig)
+  (/ (- hi lo) (* 2 eps)))
 ```
 
 After a few dozen steps the value of `q`—initially low—rises toward `1.0`, and the overall network output rises from `0.252` to `0.9`. This is precisely the classical modus‑ponens behavior, but produced by gradient descent: the implication neuron penalizes states where `P` is high and `Q` is low, so the overall AND score improves only when `Q` goes up. LNNs thus allow both forward inference (deriving consequences) and backward inference (abducing likely premises) in the same network, and their learned parameters can be read off as the relative importance or confidence attached to each logical connection.
@@ -107,7 +120,7 @@ After a few dozen steps the value of `q`—initially low—rises toward `1.0`, a
 
 NeurASP bridges the declarative power of Answer Set Programming (ASP) with the pattern‑recognition power of neural nets. In a NeurASP system, a neural network acts as an oracle that produces probabilities over atomic facts (e.g., object classes in an image). These probabilities are then embedded in an ASP program, whose stable models correspond to solutions that satisfy symbolic constraints. Crucially, the training objective—maximize the probability of the correct answer set—gradients flow *through* the ASP solving step back into the neural network, so the network learns to produce perceptions that are consistent with the ASP rules.
 
-The example `03-neurasp.rkt` now imports `dot`/`sigmoid` from `utils/math.rkt` and `t-impl` from `utils/logic.rkt`, and seeds `red`/`circle` weights slightly stronger (`2.5`) so the toy objective’s `P(flag)` is not regressing. The neural component is:
+The example `03-neurasp.rkt` imports `dot`/`sigmoid` from `utils/math.rkt` and `t-impl` from `utils/logic.rkt`. The neural component is:
 
 ```racket
 (require "../utils/math.rkt" "../utils/logic.rkt")
@@ -122,30 +135,47 @@ The ASP component is represented as a set of soft rules—each rule is a clause 
          (c-blue (hash-ref probs 'blue))
          (s-circ (hash-ref probs 'circle))
          (s-sq   (hash-ref probs 'square))
-         (c-flag (hash-ref probs 'flag))
-         (impl (lambda (x y) (+ 1.0 (- x) (* x y)))))
+         (c-flag (hash-ref probs 'flag)))
     (list
-     (impl (* c-red s-circ) c-flag)
-     (impl (* c-blue s-sq)   c-flag)
-     (impl (* c-red s-sq)   (- 1.0 c-flag)) ; red & square -> NOT flag
-     ...
-     )))
+     (t-impl (* c-red s-circ) c-flag)
+     (t-impl (* c-blue s-sq)   c-flag)
+     (t-impl (* c-red s-sq)   (- 1.0 c-flag)) ; red & square -> NOT flag
+     (t-impl (* c-blue s-circ) (- 1.0 c-flag)))))
 ```
 
-The total ASP satisfaction is the product of the individual rule satisfactions. To train the system we adjust the neural weights so that, for a red‑circle image, the derived probability of the logical conclusion `flag` increases. A finite‑difference gradient over the NN weights followed by gradient ascent drives up the ASP satisfaction and, correspondingly, the probability of the correct logical answer.
+The training loop is where the example earned a rewrite. The draft maximized rule satisfaction alone — the product of those four implications — but that objective rewards any world where the rules hold, including worlds with low `flag` (rules three and four are satisfied when `flag` is near 0). The reader watched `P(flag)` fall even as "satisfaction" rose: correct arithmetic, wrong lesson. Real NeurASP maximizes the probability of the *observed answer* given perception, so the objective must include a data term. Our image is a red circle observed with label `flag = 1`, and the objective becomes:
 
-NeurASP shows how to reuse mature symbolic solvers (clingo) for structured prediction while still learning the perceptual front‑end. The key takeaway is that the symbolic layer does not need to be rewritten as a differentiable layer; rather, its *output* (a stable‑model probability) is differentiable, and that gradient path is enough to couple learning and reasoning.
+```racket
+(define (objective ws)
+  (define probs (hash-from-weights ws))
+  (* (total-satisfaction probs)          ; prior: rules hold
+     (hash-ref probs 'flag)))            ; data: P(flag = observed label)
+```
+
+A finite‑difference gradient over the NN weights followed by gradient ascent now pushes the way the rules and the label agree it should:
+
+```
+NeurASP toy: objective = rule satisfaction x P(label):
+  Rule satisfaction initial: 0.551  final: 0.544
+  P(flag) initial: 0.454
+  P(flag) final  : 0.492
+  Objective initial: 0.250  final: 0.268
+```
+
+Rule satisfaction dips slightly but the data term dominates: ascent strengthens the circle-detecting neuron for this red‑circle image, and `P(flag)` rises. Flip the label to `flag = 0` and the same objective pushes `P(flag)` down — the direction of learning comes from the data, not from the rules alone. That is exactly the NeurASP division of labor: the ASP rules shape the space of worlds the network may believe in, and the observation selects among them.
+
+NeurASP shows how to reuse mature symbolic solvers (clingo) for structured prediction while still learning the perceptual front‑end. The key takeaway is that the symbolic layer does not need to be rewritten as a differentiable layer; rather, its *output* (a stable‑model probability) is differentiable, and that gradient path — combined with a data term anchoring outputs to labels — is enough to couple learning and reasoning.
 
 ## Differentiable Inductive Logic Programming (∂ILP)
 
 Inductive Logic Programming (ILP) learns logic programs from examples, but classical ILP relies on symbolic search over a discrete space of clauses and is not differentiable. Differentiable ILP (∂ILP) relaxes that discreteness: instead of committing to a single rule, it learns a *soft* selection over a set of candidate rules, with the selection expressed as a softmax over learnable weights. Inference then computes a weighted combination of candidate rule applications, a process that is end‑to‑end differentiable.
 
-The example `04-dilp.rkt` now factors the repeated `for/or` chain into a `chain` helper, uses `softmax` explicitly, and removes dead bindings (`orig-loss`, `rule-weights->scores` duplication). The three candidates are:
+The example `04-dilp.rkt` factors the repeated `for/or` chain into a `chain` helper, uses `softmax` explicitly, and derives the constants that intermediate variables range over from the database itself (`db-constants`), so adding facts extends the chain domain without editing the evaluator. The three candidates are:
 
 ```racket
 (define (eval-rule r db x z)
   (define (chain rel1 rel2)
-    (for/or ([y '(ann bob carl dan)]) (and (holds? db rel1 x y) (holds? db rel2 y z))))
+    (for/or ([y (db-constants db)]) (and (holds? db rel1 x y) (holds? db rel2 y z))))
   (case r [(R1) (if (chain 'parent 'parent) 1.0 0.0)]
           [(R2) (if (chain 'parent 'sibling) 1.0 0.0)]
           [(R3) (if (chain 'sibling 'parent) 1.0 0.0)]))

@@ -8,3 +8,4 @@
 07-generalization-skill-acquisition.md
 08-program-synthesis-scientific-discovery.md
 09-benchmarks-evaluation-agi.md
+10-appendix-tools-resources.md

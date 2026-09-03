@@ -5,7 +5,7 @@ This directory contains example code and demonstrations for Chapter 1, covering:
 - **Propositional and Predicate Logic**: `01-propositional-logic.rkt` - Basic logic operations, truth tables, and logical inference
 - **Automated Theorem Proving**: `02-unification.rkt` - Unification algorithm for matching terms, `03-forward-chaining.rkt` - Forward chaining inference engine
 - **Knowledge Representation**: `04-semantic-network.rkt` - Semantic network construction, querying, and inheritance
-- **Search and Planning**: `05-search-algorithms.rkt` - BFS, DFS, and A* search, `06-constraint-satisfaction.rkt` - CSP solver for map coloring and N-Queens
+- **Search and Planning**: `05-search-algorithms.rkt` - BFS and DFS as one search parameterized by a combiner, `06-constraint-satisfaction.rkt` - backtracking CSP solver (map coloring of Australia; the same `satisfies?`/`solve-map-coloring` parameterization takes other constraint sets)
 
 These examples use Racket Scheme to illustrate foundational symbolic reasoning concepts that underpin the program synthesis techniques explored throughout the book.
 

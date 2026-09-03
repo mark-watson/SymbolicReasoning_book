@@ -12,6 +12,9 @@
          crossover
          evolve)
 
+;; Fixed seed so the demo transcript is reproducible run to run
+(random-seed 3)
+
 ;; Evaluator with variable x via hash
 (define (eval-expr expr env)
   (match expr
@@ -60,13 +63,14 @@
       (replace-random-subtree p1 (random-ref (subtrees p2)))
       (random-ref (list p1 p2))))
 
-(define (evolve population examples generations)
+(define (evolve population examples generations #:trace? [trace? #t])
   (let loop ([gen 0] [pop population])
     (if (>= gen generations)
         (argmax (lambda (p) (fitness p examples)) pop)
         (let* ([scored (sort pop > #:key (lambda (p) (fitness p examples)))]
                [best (car scored)])
-          (displayln (format "Gen ~a: Best fitness = ~a prog ~a" gen (fitness best examples) best))
+          (when trace?
+            (displayln (format "Gen ~a: Best fitness = ~a prog ~a" gen (fitness best examples) best)))
           ;; Selection: keep top half, breed offspring via crossover+mutate
           (define parents (take scored (max 2 (quotient (length scored) 2))))
           (define offspring
