@@ -47,7 +47,39 @@ Key concepts demonstrated:
 - **Evaluation**: Computing truth values for formulas given variable assignments
 - **Truth tables**: Pure function returning a list of rows, with `truth-table-display` for printing
 
-The fix over the early draft is small but important. The first version used `(eq? a #t)` for `or` and `(not (eq? a #f))` for `and`, which disagreed on truthy values such as `1`. The current version uses Racket truth uniformly: anything except `#f` counts as true, and each connective returns `#t` or `#f` only.
+The latest version of this code uses Racket truth uniformly: anything except `#f` counts as true, and each connective returns `#t` or `#f` only.
+
+Output looks like:
+
+```
+$ racket 01-propositional-logic.rkt 
+=== Propositional Logic Examples ===
+P AND Q with x=#t, y=#f:
+#f
+
+P OR Q with x=#t, y=#f:
+#t
+
+P IMPLIES Q with x=#t, y=#f:
+#f
+
+P IFF Q with x=#t, y=#f:
+#f
+
+NOT P with x=#t:
+#f
+
+(x OR y) AND (x IMPLIES y) with x=#t, y=#f:
+#f
+
+Truth table for (x OR y) AND (x IMPLIES y):
+(#f #f) => #f
+(#t #f) => #f
+(#f #t) => #t
+(#t #t) => #t
+
+Note: table is #f for (#f #f) and (#t #f), #t for (#f #t) and (#t #t).
+```
 
 ## Automated Theorem Proving and Logic Programming
 
@@ -80,6 +112,46 @@ Key concepts:
 - **Proper cdr handling**: Dotted pairs unify both `car` and `cdr`, not just the `car` path
 - **Parameterized error model**: `unify` raises `exn:fail`; callers that want `#f` wrap it with `with-handlers`
 
+Program output looks like:
+
+```
+$ racket 02-unification.rkt 
+=== Unification Examples ===
+Unify (?x) with (a):
+{?x = a}
+
+Unify (?x ?y) with (a b):
+{?y = b, ?x = a}
+
+Unify (?x ?y ?x) with (a b a):
+{?y = b, ?x = a}
+Resolved ?x:
+a
+Resolved ?y:
+b
+
+Unify (f ?x) with (f (g a)):
+{?x = (g a)}
+Resolved ?x:
+(g a)
+
+Unify (?x loves ?y) with (mary loves john):
+{?y = john, ?x = mary}
+Resolved ?x:
+mary
+Resolved ?y:
+john
+
+Unify (?x ?x) with (a b) - expecting failure:
+unify: clash: a vs b
+
+Unify (?x . ?y) with (a . b):
+{?y = b, ?x = a}
+
+Chain ?x->?y, ?y->a:
+resolve ?x = a (should be a)
+```
+
 ### Forward Chaining
 
 The forward chaining engine in `03-forward-chaining.rkt` derives new facts from rules without global mutation at require time:
@@ -98,6 +170,49 @@ The forward chaining engine in `03-forward-chaining.rkt` derives new facts from 
 ```
 
 `current-facts` is a parameter, not a plain `set!` global, so tests can isolate knowledge bases and `(require "03-forward-chaining.rkt")` no longer prints at load time. Demos live inside `(module+ main ...)`. `derive-once` uses `append-map` instead of mutating `set!` and `append`, and the trace is opt-in via `#:trace?`.
+
+Here is sample output:
+
+```
+$ racket 03-forward-chaining.rkt 
+=== Forward Chaining Example ===
+Initial facts:
+  (parent tom mary)
+  (parent ann sue)
+  (parent bob ann)
+  (parent tom bob)
+
+Iteration 0: Derived 2 new facts: ((grandparent bob sue) (grandparent tom ann))
+
+Grandparent facts:
+  (grandparent bob sue)
+  (grandparent tom ann)
+
+=== Transitive Closure Example ===
+Initial facts:
+  (edge d e)
+  (edge c d)
+  (edge b c)
+  (edge a b)
+
+Iteration 0: Derived 4 new facts: ((connected d e) (connected c d) (connected b c) (connected a b))
+Iteration 1: Derived 3 new facts: ((connected c e) (connected b d) (connected a c))
+Iteration 2: Derived 2 new facts: ((connected b e) (connected a d))
+Iteration 3: Derived 1 new facts: ((connected a e))
+
+All connected pairs:
+  (connected a e)
+  (connected b e)
+  (connected a d)
+  (connected c e)
+  (connected b d)
+  (connected a c)
+  (connected d e)
+  (connected c d)
+  (connected b c)
+  (connected a b)
+
+```
 
 ## Knowledge Representation and Reasoning
 
