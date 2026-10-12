@@ -102,6 +102,8 @@ Constraint solving over templates works beautifully when the template is right, 
 
 The verifier never enumerates programs, and the synthesizer never checks the full specification. Each side does what it is good at.
 
+![The CEGIS loop on the hidden specification f(x) = 2x](images/ch4-cegis-loop.png)
+
 The example `03-cegis.rkt` synthesizes a program for the hidden specification `f(x) = 2*x` over x in 0..5, using a grammar of arithmetic expressions. The verifier compares the candidate against the specification and returns the first falsifying input:
 
 ```racket
@@ -143,6 +145,8 @@ Check: (0 2 4 6 8 10)
 ```
 
 Notice the economy of the process. The first candidate, the identity function, is consistent with the seed example 0 maps to 0 but is wrong in general; the verifier catches this with x = 1. After only two examples the synthesizer produces `(+ x x)`, which the verifier confirms is correct on every input. Pure PBE would have needed many more examples, chosen carefully, to rule out all the wrong candidates that CEGIS eliminates with a single targeted counter-example each round.
+
+The same loop runs inside today's LLM coding agents. An agent asked to fix a bug writes a patch (the candidate), runs the test suite (the verifier), reads the failing test's output (the counter-example), and writes a new patch with that failure in its prompt. The synthesizer is a language model rather than an enumerator, and the verifier is a test suite rather than a proof, so neither side gives the guarantees of this chapter. The shape is the same, though, and so is the lesson: a cheap, reliable check that returns a specific failure is worth more than a smarter generator. Chapter 5 returns to this idea with a learned proposer in the synthesizer's seat.
 
 ## Syntax-Guided Synthesis and Sketches
 

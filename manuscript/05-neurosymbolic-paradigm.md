@@ -6,7 +6,7 @@ The previous chapter ended with a warning sign. Deductive synthesis gives beauti
 
 The core observation is simple: neural networks are remarkably good at *perception* and *pattern recognition*, while symbolic systems are remarkably good at *reasoning*, *composition*, and *verification*. A neurosymbolic system couples the two. The neural side translates raw, noisy input (pixels, text, sensor signals) into structured hypotheses. The symbolic side checks those hypotheses against logical constraints, composes them with known rules, and searches for executable programs that satisfy them. Both sides can inform each other during training, and—crucially—both sides are visible in the final artifact in a way that neither a hidden state nor a symbolic trace is alone.
 
-All code examples for this chapter are in `source-code/05-neurosymbolic-paradigm/`. They are written in plain Racket and implement small versions of the neurosymbolic pipeline by hand, so the learning loop, the constraint checker, and the search procedure are all explicit. Shared math and logic helpers (`dot`, `hamming`, `t-and`, `t-impl`) are imported from `source-code/utils/math.rkt` and `utils/logic.rkt` so the four files no longer redefine them. Each file is an explicit-`provide` module with `(module+ main ...)` for demos and `(module+ test ...)` for `raco test`.
+All code examples for this chapter are in `source-code/05-neurosymbolic-paradigm/`. They are written in plain Racket and implement small versions of the neurosymbolic pipeline by hand, so the learning loop, the constraint checker, and the search procedure are all explicit. Shared math and logic helpers (`dot`, `hamming`, `t-and`, `t-impl`) are imported from `source-code/utils/math.rkt` and `utils/logic.rkt` so the five files do not redefine them. Each file is an explicit-`provide` module with `(module+ main ...)` for demos and `(module+ test ...)` for `raco test`.
 
 ```racket
 (require "../utils/math.rkt")   ; dot, hamming
@@ -214,6 +214,91 @@ Notice the contrast in the two outputs. The neural baseline produces a memorized
 
 This case study is small, but the architecture scales. Real systems like NeurASP and DreamCoder do exactly this division of labor on larger problems: a neural model proposes, scores, and abstracts components, and a symbolic engine explores the space of compositions and verifies the results against constraints.
 
+## Synthesis with Learned Proposers
+
+The case study used a neural baseline only as a foil. The more useful pattern puts the learned model *inside* the search. A large language model (LLM) trained on code assigns a probability to every program it could write. Treat that model as a proposal distribution over the program space of Chapters 2 and 3, check each proposal with the evaluators and verifiers of Chapter 4, and you have the architecture behind most LLM-based program synthesis today. It needs no new machinery. The search engines stay; the order in which they try candidates changes.
+
+The split of duties is strict. The proposer decides which candidates to try first. The verifier decides which candidates are right. A proposer can be biased, out of date, or simply wrong, and the system's answers stay correct, because nothing reaches the user without passing the verifier. A better proposer only makes the search cheaper.
+
+![A learned proposer orders the candidates; a CEGIS verifier accepts or rejects them](images/ch5-learned-proposer.png)
+
+### A probabilistic grammar as a stand-in for an LLM
+
+`05-learned-proposer.rkt` shows the pattern at a scale you can read. The proposer is a probabilistic grammar trained on a corpus of twelve solved programs. It learns how often each symbol appears in each syntactic context: at the root, or as the left or right argument of `+`, `*`, or `-`. That is a bigram model over syntax trees, the smallest "language model of programs" that still picks up habits such as "the left argument of `*` is usually a constant."
+
+```racket
+(define (events e [ctx 'root])
+  (match e
+    [(list op a b) (append (list (cons ctx op))
+                           (events a (cons op 0))
+                           (events b (cons op 1)))]
+    [s (list (cons ctx s))]))
+
+(define (train-proposer corpus)
+  (define counts (make-hash))
+  (for* ([p corpus] [ev (events p)])
+    (hash-update! counts ev add1 0))
+  (for*/hash ([ctx (contexts)] [s symbols])
+    (define total (for/sum ([t symbols]) (add1 (hash-ref counts (cons ctx t) 0))))
+    (values (cons ctx s) (log (/ (add1 (hash-ref counts (cons ctx s) 0)) total)))))
+```
+
+Add-one smoothing keeps every production possible, so the proposer can still reach programs unlike anything in its corpus. The log probability of a program is the sum over its nodes, and `learned-order` sorts all 8,116 programs up to depth 2 by that score. The uniform baseline keeps the usual smallest-first order.
+
+The search itself is the CEGIS loop of Chapter 4, with one change: it walks candidates in whatever order it is given.
+
+```racket
+(define (cegis-with-order order spec domain)
+  (let loop ([examples (list (cons (first domain) (spec (first domain))))]
+             [rounds 1]
+             [tried 0])
+    (define-values (cand n)
+      (for/fold ([found #f] [n 0]) ([e order] #:break found)
+        (values (and (fits? e examples) e) (add1 n))))
+    (define cex
+      (and cand
+           (for/first ([x domain] #:unless (= (eval-expr-with-x cand x) (spec x))) x)))
+    (cond [(not cand) (list #f rounds (+ tried n))]
+          [(not cex) (list cand rounds (+ tried n))]
+          [else (loop (append examples (list (cons cex (spec cex))))
+                      (add1 rounds)
+                      (+ tried n))])))
+```
+
+None of the four test tasks appears in the corpus. The run counts every candidate evaluation across all CEGIS rounds:
+
+```
+Search space: 8116 programs up to depth 2
+Proposer trained on 12 solved programs
+
+First five proposals, uniform: (x 1 2 3 (+ x x))
+First five proposals, learned: (x 1 2 3 (* x x))
+
+task        uniform tried             learned tried
+2x + 3      16  (+ x (+ x 3))         59  (+ (* 2 x) 3)
+3x - 1      292  (+ (+ x x) (- x 1))  59  (- (* 3 x) 1)
+x^2 + 2     139  (+ 2 (* x x))        42  (+ (* x x) 2)
+(x - 1)^2   6589  (* (- x 1) (- x 1)) 4324  (* (- x 1) (- x 1))
+```
+
+Three lessons are in this table.
+
+First, the proposer pays off on tasks that look like its training data. `3x - 1` costs 292 candidates without the prior and 59 with it, and `x^2 + 2` drops from 139 to 42.
+
+Second, the proposer still reaches tasks it has never seen. Nothing in the corpus squares a difference, yet `(x - 1)^2` is found, and found sooner, because smoothing leaves every production a nonzero probability and the corpus still teaches useful habits about `*` and `-`.
+
+Third, a prior is not free. On `2x + 3` the uniform order wins, 16 candidates to 59, because it stumbles early on `(+ x (+ x 3))`, an equivalent program the corpus considers odd. The learned proposer returns `(+ (* 2 x) 3)` instead: the form a person would write, and the form its corpus taught it. LLMs show the same trait at scale. They are fast on idiomatic code and slower, or wrong, on code unlike what they were trained on, and the verifier is what keeps "wrong" from reaching the user.
+
+### From the toy to an LLM
+
+Three differences separate this example from an LLM-guided synthesizer, and none of them changes the architecture.
+
+- **Conditioning.** This proposer ranks programs the same way for every task. An LLM reads the task (examples, a docstring, failing tests) and conditions its proposals on it. DreamCoder's recognition network does the same for a grammar like this one: it maps a task's examples to production weights.
+- **Sampling.** An LLM samples programs rather than sorting a fixed list. Sampling scales to spaces too large to sort, at the cost of duplicate proposals and no guarantee of covering the space.
+- **The verifier.** Here the verifier checks a full specification over `x = 0..9`. Production systems verify with test suites, type checkers, proof assistants, or scoring functions. The weaker the verifier, the more the system's correctness depends on the proposer, and the less of this chapter's guarantee survives.
+
+Chapter 4 noted that LLM coding agents run the CEGIS loop with a test suite as the verifier. Chapter 8 looks at FunSearch, AlphaEvolve, AlphaGeometry, and AlphaProof, which use the same split of a learned proposer and a strict checker to find new mathematics.
+
 ## Running the Examples
 
 Each is an explicit-`provide` module with `(module+ main ...)` for narration and `(module+ test ...)` for checks; `require` is silent:
@@ -224,13 +309,14 @@ racket 01-why-deep-learning-insufficient.rkt
 racket 02-neural-symbolic-synergy.rkt
 racket 03-differentiable-reasoning.rkt
 racket 04-compositional-reasoning-case-study.rkt
+racket 05-learned-proposer.rkt
 raco test .   # no demo output on require
 ```
 
-The printouts narrate each stage: perceptron convergence and failure on XOR, the lookup-table baseline versus the digit recognizer plus `+`, the gradient trace on the Socratic syllogism, and the discovery of `(+ x x)` from a single example. Reading the outputs alongside the code shows exactly where the neural and symbolic responsibilities meet.
+The printouts narrate each stage: perceptron convergence and failure on XOR, the lookup-table baseline versus the digit recognizer plus `+`, the gradient trace on the Socratic syllogism, the discovery of `(+ x x)` from a single example, and the uniform-versus-learned proposal counts. Reading the outputs alongside the code shows exactly where the neural and symbolic responsibilities meet.
 
 ## Wrap Up
 
 The neurosymbolic paradigm is not a single algorithm but a family of design patterns for combining learning and logic. Pure neural networks interpolate but do not extrapolate, and they memorize rather than compose. Pure symbolic systems verify and compose but struggle with noisy, high-dimensional perception. Neurosymbolic systems place a symbolic reasoning stage after a neural perceptual stage, smooth the interface so gradients can flow, and let each half play to its strengths.
 
-The chapter's examples build up this design pattern in four steps. The perceptron failures in `01-why-deep-learning-insufficient.rkt` show what goes wrong with pure function approximation. The digit-addition pipeline in `02-neural-symbolic-synergy.rkt` shows how a clean perceptual/symbolic seam fixes the extrapolation failure. The soft logic engine in `03-differentiable-reasoning.rkt` shows how the seam can be made differentiable so beliefs are trained jointly with the logic. And the program-synthesis case study in `04-compositional-reasoning-case-study.rkt` shows the full neurosymbolic loop returning an executable, composable artifact, not just a label or a number. The next chapter, *Neurosymbolic Architectures & Algorithms*, moves from these worked examples to the deployed systems—Logic Tensor Networks, Logical Neural Networks, NeurASP, and Differentiable ILP—that industrialize the same ideas.
+The chapter's examples build up this design pattern in five steps. The perceptron failures in `01-why-deep-learning-insufficient.rkt` show what goes wrong with pure function approximation. The digit-addition pipeline in `02-neural-symbolic-synergy.rkt` shows how a clean perceptual/symbolic seam fixes the extrapolation failure. The soft logic engine in `03-differentiable-reasoning.rkt` shows how the seam can be made differentiable so beliefs are trained jointly with the logic. And the program-synthesis case study in `04-compositional-reasoning-case-study.rkt` shows the full neurosymbolic loop returning an executable, composable artifact, not just a label or a number. Finally, `05-learned-proposer.rkt` moves the learned model inside the search: a probabilistic grammar orders the candidates, CEGIS verifies them, and the same split of duties underlies LLM-guided synthesis. The next chapter, *Neurosymbolic Architectures & Algorithms*, moves from these worked examples to the deployed systems—Logic Tensor Networks, Logical Neural Networks, NeurASP, and Differentiable ILP—that industrialize the same ideas.

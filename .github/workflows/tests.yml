@@ -1,0 +1,22 @@
+name: Racket tests
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        racket-version: ["8.10", "stable"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Bogdanp/setup-racket@v1.14
+        with:
+          version: ${{ matrix.racket-version }}
+          distribution: full
+      - name: Run every chapter's tests
+        run: racket source-code/run-all-tests.rkt

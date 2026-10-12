@@ -6,6 +6,7 @@ This directory contains example code and demonstrations for Chapter 5, covering:
 - **Neural-Symbolic Integration**: A mock perceptual digit recognizer feeding a symbolic addition layer (MNIST digit addition task)
 - **Differentiable Reasoning**: Soft logic with t-norm connectives; gradient ascent on a knowledge base's satisfaction learns the inference human -> mortal
 - **Compositional Reasoning Case Study**: Pure neural memorization vs. enumerative program synthesis from a single example
+- **Learned Proposers**: A probabilistic grammar trained on solved programs orders CEGIS candidates, the role an LLM plays in LLM-guided synthesis
 
 These examples use plain Racket and implement small versions of the ideas by hand so the reasoning and learning logic is visible.
 
@@ -15,6 +16,7 @@ These examples use plain Racket and implement small versions of the ideas by han
 - `02-neural-symbolic-synergy.rkt` - MNIST digit-addition: pure memorization vs. neural perception + symbolic addition
 - `03-differentiable-reasoning.rkt` - Soft logic (t-norm AND, Reichenbach implication) with gradient-based inference
 - `04-compositional-reasoning-case-study.rkt` - Program synthesis vs. memorization on a one-shot task
+- `05-learned-proposer.rkt` - Uniform vs. learned proposal order inside a CEGIS loop
 
 ## Running
 
@@ -23,4 +25,5 @@ racket 01-why-deep-learning-insufficient.rkt
 racket 02-neural-symbolic-synergy.rkt
 racket 03-differentiable-reasoning.rkt
 racket 04-compositional-reasoning-case-study.rkt
+racket 05-learned-proposer.rkt
 ```

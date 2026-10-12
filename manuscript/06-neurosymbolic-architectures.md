@@ -4,6 +4,10 @@ The previous chapter explored the neurosymbolic paradigm as a design pattern: ne
 
 All code examples are in `source-code/06-neurosymbolic-architectures/` and are written in plain Racket so that every step is visible. Shared `dot`, `sigmoid`, and t-norm helpers are imported from `source-code/utils/math.rkt` and `utils/logic.rkt`; each file now has an explicit `provide` and `(module+ main ...)`/`(module+ test ...)` so `require` is silent. None requires an external solver.
 
+The figure below draws all four in one visual language. Blue boxes hold learned parameters, green boxes hold symbolic structure, gray boxes hold data or a score, and dashed arrows show where gradients flow. Keep it in view as you read: the four systems differ mainly in where the green boxes sit and whether the gradient passes through them.
+
+![Four neurosymbolic architectures in one visual language](images/ch6-architectures.png)
+
 ## Logic Tensor Networks (LTN)
 
 Logic Tensor Networks (LTN) treat logical formulas as computations over tensors. Constants in a first-order language are mapped to embedding vectors, predicates are neural nets that map tuples of embeddings to truth degrees in [0,1], and logical connectives are smooth relaxations built from t-norms. The key insight is that, with these choices, logical inference becomes differentiable: one can adjust the parameters of the predicates—and even the constants themselves—via gradient descent to maximize the degree of satisfaction of a knowledge base.
@@ -67,7 +71,7 @@ Because every step is differentiable, we can perform gradient ascent on the para
     (/ (- sat+ sat-) (* 2 h))))
 ```
 
-The output shows the KB satisfaction rise after a hundred ascent steps (from about `0.148` to `0.249`), with the predicate weights moving in the direction preferred by the rule. LTNs have been used for knowledge‑base completion, semantic image interpretation, and any setting where a structured set of logical constraints must be reconciled with noisy learned models. LTNs have been used for knowledge‑base completion, semantic image interpretation, and any setting where a structured set of logical constraints must be reconciled with noisy learned models.
+The output shows the KB satisfaction rise after a hundred ascent steps (from about `0.148` to `0.249`), with the predicate weights moving in the direction preferred by the rule. LTNs have been used for knowledge‑base completion, semantic image interpretation, and any setting where a structured set of logical constraints must be reconciled with noisy learned models.
 
 ## Logical Neural Networks (LNN)
 
