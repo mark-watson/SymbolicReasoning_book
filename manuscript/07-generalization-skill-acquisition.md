@@ -1,6 +1,9 @@
+# Part IV: Advanced Topics & Applications
+
+A system that solves only the tasks it was trained on is not intelligent. Part IV takes on the harder goal: generalizing past the data, building a library of skills, and finding things nobody told it to find. You will build a synthesizer that turns its own solutions into reusable macros, one that adapts at test time as examples stream in, and one that names new skills and composes them into larger ones. Then you point the same machinery at science. From six noisy measurements, your code rediscovers Kepler's third law as a formula that holds beyond the data it saw. Finally, you will see how FunSearch, AlphaEvolve, AlphaGeometry, and AlphaProof scale this exact pattern to find new mathematics.
+
 # Chapter 7: Generalization & Autonomous Skill Acquisition
 
-*Part IV — Advanced Topics & Applications.*
 
 A synthesis system is truly useful only when it can go beyond the specific examples it was trained on. This chapter examines how to build systems that generalize systematically, reuse learned abstractions, adapt online at test time, and acquire skills autonomously. The code is in `source-code/07-generalization-skill-acquisition/` and is now explicit-`provide` modules with `(module+ main ...)`/`(module+ test ...)`; `skill-library` is a parameter so `require` is silent, and `synthesize-skill` no longer takes an unused `max-depth` argument.
 

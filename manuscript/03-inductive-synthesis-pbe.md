@@ -1,6 +1,9 @@
+# Part II: Core Methods in Program Synthesis
+
+There are two classical ways to make a machine write code: learn the program from examples, or derive it from a specification. Part II builds both. In Chapter 3 you build the algorithm behind Excel's Flash Fill. From one example it holds 1.2 billion consistent programs in a graph of 66 edges. A second example cuts that to 7,056, and every program left is a general rule. In Chapter 4 you extract programs from proofs, encode synthesis as constraints the way SMT solvers do, and run CEGIS, a loop in which a verifier hands the synthesizer exactly the counter-example it needs. CEGIS finds the right program from two examples, and the same loop runs inside today's LLM coding agents.
+
 # Chapter 3: Inductive Synthesis & Programming by Example (PBE)
 
-*Part II: Core Methods in Program Synthesis.*
 
 Programming by Example (PBE) is the most direct form of synthesis: a user gives input-output pairs and the system infers a program. It is also the most proven in industry. Flash Fill, which shipped in Microsoft Excel 2013, lets a spreadsheet user type one or two cleaned-up values and fills the rest of the column with a synthesized string program. The user never sees the program; they see a column that is right.
 

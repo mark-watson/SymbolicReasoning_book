@@ -1,6 +1,10 @@
+# Part V: The Road Ahead
+
+How do you tell a system that understands from one that memorized? Part V builds the tools that answer that question. You will write an evaluation harness that reports train accuracy, test accuracy, program size, and search cost for every task. You will build small ARC-style and SCAN-style tests and a leaderboard that makes the generalization gap impossible to hide. Then you will read the real ARC-AGI record against them. On ARC-AGI-2, the same LLM scores 31% on its own and 54% inside a propose-and-verify loop. On the interactive ARC-AGI-3, frontier systems scored below 1% at launch while people solved every task. The closing chapter shows where the field stands and what the systems that close the gap will likely need.
+
 # Chapter 9: Benchmarks, Evaluation, and the Path to AGI
 
-*Part V — The Road Ahead.*
+
 
 Previous chapters showed how to build synthesis systems that learn, reason, and compose. This chapter asks a different question: how do we know whether those systems are actually any good? Benchmarks and evaluation frameworks are the bridge between the research program of program synthesis and the broader ambition of artificial general intelligence (AGI). A synthesizer that solves one curated example is interesting; a synthesizer that solves a battery of tasks with a measurable generalization gap is interesting *and* trustworthy.
 

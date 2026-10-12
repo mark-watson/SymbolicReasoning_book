@@ -1,6 +1,9 @@
+# Part I: Foundations of Symbolic AI and Program Synthesis
+
+Before machines learned from data, they reasoned from rules, and those rules never went away. In Part I you build the core of symbolic AI from scratch: a propositional logic evaluator, unification, a forward-chaining inference engine, a semantic network, search algorithms, and a constraint solver. Each one is a few dozen lines of Racket you can read in one sitting. Then Chapter 2 asks the question the rest of the book answers: if you describe what a program should do, can a machine find the program? You will write your first synthesizer, watch it enumerate candidates until one fits, and learn the four parts every synthesizer has: a language, a search, a way to prune, and a precise statement of the task.
+
 # Chapter 1: Introduction to Symbolic Reasoning
 
-*Part I — Foundations of Symbolic AI and Program Synthesis.*
 
 Symbolic reasoning forms the bedrock of classical artificial intelligence. Before statistical and neural network based methods dominated the landscape, AI researchers built systems that manipulated explicit symbols according to formal rules. This chapter introduces the fundamental concepts that underpin symbolic AI and explains why these ideas remain essential for building systems capable of genuine reasoning.
 

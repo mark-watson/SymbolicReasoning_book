@@ -1,6 +1,9 @@
+# Part III: Neurosymbolic Program Synthesis
+
+Neural networks perceive; symbolic engines reason. Part III shows you why you need both. You will watch a perceptron fail to extrapolate and fail on XOR, then fix those failures by giving perception and logic separate jobs. You will train a knowledge base by gradient ascent until it learns that Socrates is mortal. You will put a learned model inside the search, the role an LLM plays in modern synthesis, and see it cut a CEGIS search from 292 candidates to 59 without ever weakening the verifier's guarantee. Chapter 6 then builds small working versions of four real architectures: Logic Tensor Networks, Logical Neural Networks, NeurASP, and differentiable ILP, drawn side by side so you can see exactly where each one puts the logic.
+
 # Chapter 5: The Neurosymbolic Paradigm
 
-*Part III — Neurosymbolic Program Synthesis.*
 
 The previous chapter ended with a warning sign. Deductive synthesis gives beautiful guarantees, but constraint solving and theorem proving search exponentially large spaces. Purely inductive learning, by contrast, scales gracefully but learns statistical correlations without any built-in notion of correctness or compositionality. The neurosymbolic paradigm proposes to close this gap by combining the strengths of both approaches.
 
