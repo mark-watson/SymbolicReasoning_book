@@ -90,11 +90,13 @@ where `kind` is either `'input`, `'and`, or `'impl`. Evaluation is now split int
 (define (eval-neuron-pure n)
   (match (neuron-kind n)
     ['input (neuron-value n)]
-    ['and (apply * (map eval-neuron-pure (neuron-inputs n)))]
+    ['and (t-and-list (map eval-neuron-pure (neuron-inputs n)))]
     ['impl (t-impl (eval-neuron-pure (first (neuron-inputs n)))
                    (eval-neuron-pure (second (neuron-inputs n))))]))
 (define (eval-neuron n) (define v (eval-neuron-pure n)) (set-neuron-value! n v) v)
 ```
+
+The example uses the product t-norm (`t-and-list`) and Reichenbach implication (`t-impl`) from `utils/logic.rkt`, the same connectives as the LTN example. IBM's LNN uses weighted Łukasiewicz logic and tracks upper and lower bounds on each truth value; the product form keeps this example short.
 
 Building the network for a simple theory `P AND (P -> Q)` looks like:
 
@@ -177,23 +179,31 @@ Inductive Logic Programming (ILP) learns logic programs from examples, but class
 The example `04-dilp.rkt` factors the repeated `for/or` chain into a `chain` helper, uses `softmax` explicitly, and derives the constants that intermediate variables range over from the database itself (`db-constants`), so adding facts extends the chain domain without editing the evaluator. The three candidates are:
 
 ```racket
-(define (eval-rule r db x z)
+(define (eval-rule r kb x z)
   (define (chain rel1 rel2)
-    (for/or ([y (db-constants db)]) (and (holds? db rel1 x y) (holds? db rel2 y z))))
-  (case r [(R1) (if (chain 'parent 'parent) 1.0 0.0)]
-          [(R2) (if (chain 'parent 'sibling) 1.0 0.0)]
-          [(R3) (if (chain 'sibling 'parent) 1.0 0.0)]))
+    (for/or ([y (db-constants kb)])
+      (and (holds? kb rel1 x y) (holds? kb rel2 y z))))
+  (case r
+    [(R1) (if (chain 'parent 'parent) 1.0 0.0)]
+    [(R2) (if (chain 'parent 'sibling) 1.0 0.0)]
+    [(R3) (if (chain 'sibling 'parent) 1.0 0.0)]
+    [else 0.0]))
 ```
+
+The database argument is named `kb`, not `db`, because `db` is also the name of the struct constructor, and a parameter named `db` would hide it inside the function.
 
 Given rule weights, inference computes a softmax over the weights and produces a weighted sum of the candidate scores:
 
 ```racket
-(define (infer-grandparent weights db x z)
-  (let* ((scores (rule-weights->scores weights db x z))
-         (exps   (map (lambda (w) (exp w)) weights))
-         (sumexps (apply + exps))
-         (softweights (map (lambda (e) (/ e sumexps)) exps)))
-    (apply + (map * softweights scores))))
+(define (softmax ws)
+  (define exps (map exp ws))
+  (define sum (apply + exps))
+  (map (lambda (e) (/ e sum)) exps))
+
+(define (infer-grandparent weights kb x z)
+  (define scores (for/list ([r '(R1 R2 R3)]) (eval-rule r kb x z)))
+  (define probs (softmax weights))
+  (apply + (map * probs scores)))
 ```
 
 Training minimizes a mean‑squared‑error loss between the inferred score and the target truth value for positive and negative examples. The gradient is again computed numerically, and gradient descent drives the rule weights until the softmax puts nearly all its mass on the correct rule `R1`. The final softmax, shown in the output, sharply favors `R1` (~0.896) over the alternatives, and inference on held‑out examples behaves accordingly.

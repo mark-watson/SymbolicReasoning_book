@@ -23,6 +23,17 @@
 ;; Create a singleton space
 (define (singleton prog) (list 'singleton prog))
 
+;; A singleton is itself a list, so every list case below must test for
+;; singleton first.
+(define (singleton? vs) (and (pair? vs) (eq? (car vs) 'singleton)))
+
+;; Concrete program lists use empty-space, never '(), for "no programs",
+;; so there is one representation of the empty space.
+(define (normalize vs) (if (null? vs) empty-space vs))
+
+;; View a singleton or concrete space as a plain list of programs
+(define (space->list vs) (if (singleton? vs) (list (cadr vs)) vs))
+
 ;; Intersection: programs in both spaces
 ;; NB: singleton checks come before the concrete-list check, because a
 ;; singleton (list 'singleton p) is itself a list and would otherwise be
@@ -34,17 +45,17 @@
     [(eq? vs1 universal-space) vs2]
     [(eq? vs2 universal-space) vs1]
     ;; Singleton handling: treat singleton as one-element list
-    [(and (pair? vs1) (eq? (car vs1) 'singleton))
+    [(singleton? vs1)
      (cond
        [(in-space? (cadr vs1) vs2) vs1]
        [else empty-space])]
-    [(and (pair? vs2) (eq? (car vs2) 'singleton))
+    [(singleton? vs2)
      (cond
        [(in-space? (cadr vs2) vs1) vs2]
        [else empty-space])]
     ;; Both are concrete lists of programs (simplified algebra)
     [(and (list? vs1) (list? vs2))
-     (filter (lambda (p) (member p vs2)) vs1)]
+     (normalize (filter (lambda (p) (member p vs2)) vs1))]
     [else empty-space]))
 
 ;; Union: programs in either space
@@ -55,7 +66,7 @@
     [(eq? vs1 universal-space) universal-space]
     [(eq? vs2 universal-space) universal-space]
     [(and (list? vs1) (list? vs2))
-     (remove-duplicates (append vs1 vs2))]
+     (remove-duplicates (append (space->list vs1) (space->list vs2)))]
     [else universal-space]))
 
 ;; Check if program is in version space (strict boolean)
@@ -63,22 +74,22 @@
   (cond
     [(eq? vs empty-space) #f]
     [(eq? vs universal-space) #t]
+    [(singleton? vs) (equal? prog (cadr vs))]
     [(list? vs) (and (member prog vs) #t)]
-    [(and (pair? vs) (eq? (car vs) 'singleton)) (equal? prog (cadr vs))]
     [else #f]))
 
 ;; Update version space based on new example
 (define (add-example example vs)
   (match-define (list input output) example)
+  (define (fits? p) (matches-example? p input output))
   (cond
-    [(eq? vs universal-space)
-     (filter (lambda (p) (matches-example? p input output))
-             (generate-candidates))]
-    [(list? vs)
-     (filter (lambda (p) (matches-example? p input output)) vs)]
+    [(eq? vs universal-space) (normalize (filter fits? (generate-candidates)))]
+    [(singleton? vs) (if (fits? (cadr vs)) vs empty-space)]
+    [(list? vs) (normalize (filter fits? vs))]
     [else vs]))
 
-;; Helper: check if program matches example (numbers only in this chapter)
+;; Helper: check if program matches example (numbers only in this chapter,
+;; so the input is not consulted)
 (define (matches-example? prog input output)
   (and (number? prog) (= prog output)))
 
@@ -108,11 +119,11 @@
 
   (displayln "After adding examples f(0)=0, f(1)=2, f(2)=4, f(3)=6:")
   (displayln updated-vs)
-  (displayln "No constant fits all four points, so version space collapses to ().")
+  (displayln "No constant fits all four points, so the version space is empty.")
   (displayln "")
 
   (displayln "Size of version space:")
-  (displayln (length updated-vs))
+  (displayln (if (eq? updated-vs empty-space) 0 (length updated-vs)))
 
   (define vs1 '(0 1 2))
   (define vs2 '(1 2 3))
@@ -150,4 +161,11 @@
   (check-equal? (vs-intersect (singleton 9) '(1 2 3)) empty-space)
   (check-equal? (vs-intersect '(1 2 3) (singleton 2)) (singleton 2))
   (check-false (in-space? '(1 2) (singleton 2)))
-  (check-true (in-space? 2 (singleton 2))))
+  (check-true (in-space? 2 (singleton 2)))
+  (check-false (in-space? 'singleton (singleton 2)))
+  (check-equal? (vs-union (singleton 2) '(1 3)) '(2 1 3))
+  (check-equal? (add-example '(0 2) (singleton 2)) (singleton 2))
+  (check-equal? (add-example '(0 9) (singleton 2)) empty-space)
+  ;; Filtering everything away yields the canonical empty space
+  (check-equal? (add-example '(0 9) '(1 2 3)) empty-space)
+  (check-equal? (vs-intersect '(1) '(2)) empty-space))

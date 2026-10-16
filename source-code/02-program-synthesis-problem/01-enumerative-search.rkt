@@ -31,25 +31,27 @@
   (for/and ([ex examples])
     (equal? val (cadr ex))))
 
-;; Generate programs up to given size (memoized to avoid double recursion)
+;; Generate programs up to a given tree depth (depth 1 = constants only).
+;; The program count grows doubly exponentially: 6, 114, about 39,000.
+;; Memoized so each depth is built once.
 (define generate-programs
   (let ([cache (make-hash)])
-    (lambda (max-size)
-      (hash-ref! cache max-size
+    (lambda (max-depth)
+      (hash-ref! cache max-depth
                  (lambda ()
-                   (if (= max-size 1)
+                   (if (= max-depth 1)
                        (list 0 1 2 3 4 5)
                        (let ([base (list 0 1 2 3 4 5)]
-                             [subs (generate-programs (max 1 (- max-size 1)))])
+                             [subs (generate-programs (- max-depth 1))])
                          (remove-duplicates
                           (append base
                                   (for*/list ([a subs] [b subs] [op '(+ * -)])
                                     (list op a b)))))))))))
 
 ;; Bottom-up search: enumerate programs and test
-(define (bottom-up-search examples max-size)
+(define (bottom-up-search examples max-depth)
   (findf (lambda (p) (matches-examples? p examples))
-         (generate-programs max-size)))
+         (generate-programs max-depth)))
 
 (module+ main
   (displayln "=== Enumerative Search Example ===")
@@ -63,17 +65,17 @@
   (displayln "fit subsets of the spec, to isolate enumeration.")
   (displayln "")
 
-  (displayln "Programs of size 1:")
+  (displayln "Programs of depth 1:")
   (define progs-1 (generate-programs 1))
   (display "  ") (displayln progs-1)
 
   (displayln "")
-  (displayln "Programs of size 2:")
+  (displayln "Programs of depth 2:")
   (define progs-2 (generate-programs 2))
   (display "  Sample: ") (displayln (take progs-2 15))
 
   (displayln "")
-  (displayln "Programs of size 3:")
+  (displayln "Programs of depth 3:")
   (define progs-3 (generate-programs 3))
   (display "  Count (deduped): ") (displayln (length progs-3))
 

@@ -104,29 +104,56 @@ The verifier never enumerates programs, and the synthesizer never checks the ful
 
 ![The CEGIS loop on the hidden specification f(x) = 2x](images/ch4-cegis-loop.png)
 
-The example `03-cegis.rkt` synthesizes a program for the hidden specification `f(x) = 2*x` over x in 0..5, using a grammar of arithmetic expressions. The verifier compares the candidate against the specification and returns the first falsifying input:
+The example `03-cegis.rkt` synthesizes a program for the hidden specification `f(x) = 2*x` over x in 0..5, using a grammar of arithmetic expressions. The synthesizer enumerates programs up to depth 2 and sorts them by node count, so it always proposes the smallest program that fits:
 
 ```racket
-(define (verify candidate)
-  (define (spec x) (* 2 x))
-  (for/first ((x '(0 1 2 3 4 5))
-              #:when (not (= (eval-expr candidate x) (spec x))))
+(define (gen-exprs depth)
+  (define (layer depth)
+    (if (= depth 0)
+        '(x 0 1)
+        (let ([subs (layer (- depth 1))])
+          (append '(x 0 1)
+                  (for*/list ([a subs] [b subs]) `(+ ,a ,b))
+                  (for*/list ([a subs] [b subs]) `(* ,a ,b))))))
+  (sort (layer depth) < #:key ast-size #:cache-keys? #t))
+```
+
+The sort matters. Without it, every `+` program comes before every `*` program, and for examples of `x^2` the synthesizer returns `(+ 0 (* x x))` rather than `(* x x)`. Racket's `sort` is stable, so programs of equal size keep their generation order.
+
+The verifier compares the candidate against the specification and returns the first falsifying input. The specification and the inputs it checks are arguments, so the same loop can chase any target function:
+
+```racket
+(define default-spec (lambda (x) (* 2 x)))
+(define default-domain '(0 1 2 3 4 5))
+
+(define (verify candidate [spec default-spec] [domain default-domain])
+  (for/first ([x domain] #:unless (= (eval-expr candidate x) (spec x)))
     x))
 ```
 
-The CEGIS loop threads the growing example set through rounds of synthesis and verification:
+Checking six inputs is bounded verification. A real verifier would prove the property for every `x`.
+
+The CEGIS loop threads the growing example set through rounds of synthesis and verification, and stops after `max-rounds` rounds:
 
 ```racket
-(let ((cex (verify candidate)))
-  (cond
-    [(not cex)
-     (displayln "Verifier: no counter-example found. CORRECT.")
-     candidate]
-    [else
-     (displayln (format "Verifier: counter-example input x = ~a" cex))
-     (loop (append examples (list (cons cex (* 2 cex))))
-           (+ round 1))]))
+(define (cegis max-rounds
+               #:spec [spec default-spec]
+               #:domain [domain default-domain]
+               #:seed [seed (list (cons (first domain) (spec (first domain))))]
+               #:trace? [trace? #f])
+  (let loop ([examples seed] [round 1])
+    (cond
+      [(> round max-rounds) (when trace? (displayln "Round limit reached.")) #f]
+      [else
+       (define candidate (synthesize examples 2))
+       (define cex (and candidate (verify candidate spec domain)))
+       (cond
+         [(not candidate) #f]
+         [(not cex) candidate]
+         [else (loop (append examples (list (cons cex (spec cex)))) (+ round 1))])])))
 ```
+
+The listing omits the trace output; the file prints each round when called with `#:trace? #t`.
 
 Running the example shows the signature behavior of CEGIS:
 
@@ -146,40 +173,44 @@ Check: (0 2 4 6 8 10)
 
 Notice the economy of the process. The first candidate, the identity function, is consistent with the seed example 0 maps to 0 but is wrong in general; the verifier catches this with x = 1. After only two examples the synthesizer produces `(+ x x)`, which the verifier confirms is correct on every input. Pure PBE would have needed many more examples, chosen carefully, to rule out all the wrong candidates that CEGIS eliminates with a single targeted counter-example each round.
 
+Change the specification to `x^2` with `(cegis 10 #:spec (lambda (x) (* x x)))` and the loop needs three rounds. The candidates go `x`, then `(+ x x)`, which fits the counter-example `(2 . 4)` by coincidence, then `(* x x)`.
+
 The same loop runs inside today's LLM coding agents. An agent asked to fix a bug writes a patch (the candidate), runs the test suite (the verifier), reads the failing test's output (the counter-example), and writes a new patch with that failure in its prompt. The synthesizer is a language model rather than an enumerator, and the verifier is a test suite rather than a proof, so neither side gives the guarantees of this chapter. The shape is the same, though, and so is the lesson: a cheap, reliable check that returns a specific failure is worth more than a smarter generator. Chapter 5 returns to this idea with a learned proposer in the synthesizer's seat.
 
 ## Syntax-Guided Synthesis and Sketches
 
 CEGIS still searches a large program space. SyGuS, standardized in an annual competition, narrows that space by requiring the user to supply a grammar: a context-free description of every program the synthesizer is allowed to consider. Search then proceeds only over grammar-conformant expressions.
 
-The example `04-sygus-sketch.rkt` defines a small integer-expression grammar with conditionals and enumerates it by depth. Guards stay shallow — boolean conditions are comparisons of depth-0 integer expressions only, so `gen-bool` takes no depth argument:
+The example `04-sygus-sketch.rkt` defines a small integer-expression grammar with conditionals and enumerates it by depth. Guards stay shallow: boolean conditions compare depth-0 integer expressions only, so `gen-bool` takes no depth argument. The generator builds the program list in layers. Every depth-`d` program comes before any program of depth `d+1`, and each new layer holds only the programs with at least one child from the layer just below, so no program appears twice:
 
 ```racket
+(define int-leaves '(x y 0 1))
+
+(define (gen-bool)
+  (for*/list ([a int-leaves] [b int-leaves]) `(<= ,a ,b)))
+
 (define (gen-int depth)
-  (if (= depth 0)
-      '(x y 0 1)
-      (append
-       '(x y 0 1)
-       (for*/list ((a (gen-int (- depth 1)))
-                   (b (gen-int (- depth 1))))
-         `(+ ,a ,b))
-       (for*/list ((a (gen-int (- depth 1)))
-                   (b (gen-int (- depth 1))))
-         `(- ,a ,b))
-       (for*/list ((c (gen-bool))
-                   (t (gen-int (- depth 1)))
-                   (e (gen-int (- depth 1))))
-         `(ite ,c ,t ,e)))))
+  (let loop ([d 0] [all int-leaves] [newest int-leaves])
+    (if (= d depth)
+        all
+        (let* ([new? (lambda (e) (member e newest))]
+               [pairs (for*/list ([a all] [b all] #:when (or (new? a) (new? b)))
+                        (cons a b))]
+               [layer (append
+                       (for/list ([p pairs]) `(+ ,(car p) ,(cdr p)))
+                       (for/list ([p pairs]) `(- ,(car p) ,(cdr p)))
+                       (for*/list ([c (gen-bool)] [p pairs]) `(ite ,c ,(car p) ,(cdr p))))])
+          (loop (+ d 1) (append all layer) layer)))))
 ```
 
-With this grammar and four examples, the synthesizer finds a program equivalent to the max function:
+With this grammar and four examples, the synthesizer finds the max function:
 
 ```
 Part 1: synthesize max2 from examples (depth-2 enumeration)
-  Synthesized: (+ 0 (ite (<= x y) y x))
+  Synthesized: (ite (<= x y) y x)
 ```
 
-The answer is syntactically clumsy, with a redundant `(+ 0 ...)`, but it is exactly what depth-limited grammar enumeration produces: the first well-formed program that satisfies the examples. Real SyGuS solvers add aggressive simplification and equivalence reduction to avoid such noise.
+Layering is what keeps the answer clean. A generator that rebuilds the full list at each depth puts `(+ 0 (ite (<= x y) y x))` ahead of the depth-1 `ite`, and returns the padded form. Shallowest-first order is a cheap stand-in for the simplification and equivalence reduction that real SyGuS solvers perform.
 
 The second half of the file demonstrates sketch completion, a close relative of SyGuS in which the human writes the algorithmic skeleton and the synthesizer fills in holes. Given the template `(ite (<= x y) ?? ??)` and hole domain `{x y 0 1}`, enumeration over hole fillings instantly yields the classic max program:
 
@@ -201,7 +232,7 @@ racket 01-proof-based-synthesis.rkt   # programs from proofs
 racket 02-smt-constraints.rkt
 racket 03-cegis.rkt
 racket 04-sygus-sketch.rkt
-raco test .                           # 11 checks, no demo output
+raco test .                           # 27 checks, no demo output
 ```
 
 The traces are worth reading carefully. In `01-proof-based-synthesis.rkt`, watch how the proof term and program term grow together. In `03-cegis.rkt`, count how few examples were needed to pin down the correct program. These traces are the chapter's theory made visible.

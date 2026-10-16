@@ -14,7 +14,7 @@
     [`(+ ,a ,b) (+ (eval-linear a xval) (eval-linear b xval))]
     [`(- ,a ,b) (- (eval-linear a xval) (eval-linear b xval))]
     [`(* ,a ,b) (* (eval-linear a xval) (eval-linear b xval))]
-    [_ #f]))
+    [_ (raise-argument-error 'eval-linear "linear expr" expr)]))
 
 (define (synth-nearest-neighbor train)
   (lambda (x)
@@ -52,7 +52,9 @@
 (define (display-results label runs)
   (displayln (format "--- ~a ---" label))
   (for ([r runs])
-    (define tag (if (not (result-prog r)) "no-coverage" (format "prog ~a" (result-prog r))))
+    (define tag (cond [(not (result-prog r)) "no-coverage"]
+                      [(procedure? (result-prog r)) "lookup table"]
+                      [else (format "prog ~a" (result-prog r))]))
     (displayln (format "  ~a: train ~a  test ~a  ~a"
                        (result-name r)
                        (exact->inexact (result-train-acc r))

@@ -35,7 +35,9 @@
     [(reverse) (string-reverse input)]
     [(to-upper) (string-upcase input)]
     [(to-lower) (string-downcase input)]
-    [else input]))
+    ;; An unknown name must not silently act as identity, or a typo would
+    ;; pass every example where input equals output.
+    [else (raise-argument-error 'apply-operation "known operation" op)]))
 
 (define (vs-union vs1 vs2)
   (vs (vs-desc vs1)
@@ -85,4 +87,5 @@
   (define a (vs-update '("hello" "olleh") op-space))
   (define b (vs-update '("HELLO" "hello") op-space))
   (check-equal? (vs-candidates (vs-intersect a b)) '())
-  (check-equal? (length (vs-candidates (vs-union a b))) 2))
+  (check-equal? (length (vs-candidates (vs-union a b))) 2)
+  (check-exn exn:fail? (lambda () (apply-operation 'idenity "x"))))

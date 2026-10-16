@@ -12,14 +12,11 @@
          crossover
          evolve)
 
-;; Fixed seed so the demo transcript is reproducible run to run
-(random-seed 3)
-
 ;; Evaluator with variable x via hash
 (define (eval-expr expr env)
   (match expr
     [(? number? n) n]
-    [(? symbol? s) (hash-ref env s s)]
+    [(? symbol? s) (hash-ref env s (lambda () (error 'eval-expr "unbound variable ~a" s)))]
     [`(+ ,a ,b) (+ (eval-expr a env) (eval-expr b env))]
     [`(* ,a ,b) (* (eval-expr a env) (eval-expr b env))]
     [`(- ,a ,b) (- (eval-expr a env) (eval-expr b env))]
@@ -63,11 +60,12 @@
       (replace-random-subtree p1 (random-ref (subtrees p2)))
       (random-ref (list p1 p2))))
 
-(define (evolve population examples generations #:trace? [trace? #t])
+(define (evolve population examples generations #:trace? [trace? #f])
   (let loop ([gen 0] [pop population])
     (if (>= gen generations)
         (argmax (lambda (p) (fitness p examples)) pop)
-        (let* ([scored (sort pop > #:key (lambda (p) (fitness p examples)))]
+        (let* ([scored (sort pop > #:key (lambda (p) (fitness p examples))
+                             #:cache-keys? #t)]
                [best (car scored)])
           (when trace?
             (displayln (format "Gen ~a: Best fitness = ~a prog ~a" gen (fitness best examples) best)))
@@ -79,6 +77,8 @@
           (loop (+ gen 1) (append parents offspring))))))
 
 (module+ main
+  ;; Fixed seed so the demo transcript is reproducible run to run
+  (random-seed 3)
   (displayln "=== Genetic Programming Example ===")
 
   (define examples '((0 0) (1 2) (2 4) (3 6)))
@@ -91,7 +91,7 @@
   (displayln "Initial random programs (sample 5):")
   (displayln (take population 5))
 
-  (define best (evolve population examples 5))
+  (define best (evolve population examples 5 #:trace? #t))
   (displayln "")
   (displayln (format "Best program after 5 generations: ~a" best))
   (displayln (format "Fitness: ~a" (fitness best examples)))
@@ -102,5 +102,8 @@
   (require rackunit)
   (check-equal? (eval-expr '(+ x 1) (hash 'x 2)) 3)
   (check-equal? (fitness '(+ x x) '((0 0) (1 2) (2 4))) 0)
-  (check-true (or (number? (mutate '(+ x 1))) (list? (mutate '(+ x 1)))))
-  (check-true (or (number? (crossover '(+ 1 2) '(* 3 4))) (list? (crossover '(+ 1 2) '(* 3 4))))))
+  (check-exn exn:fail? (lambda () (eval-expr '(+ y 1) (hash 'x 2))))
+  ;; mutation and crossover always yield programs the evaluator accepts
+  (for ([_ (in-range 50)])
+    (check-pred number? (eval-expr (mutate '(+ x 1)) (hash 'x 3)))
+    (check-pred number? (eval-expr (crossover '(+ x 2) '(* 3 (- x 4))) (hash 'x 3)))))

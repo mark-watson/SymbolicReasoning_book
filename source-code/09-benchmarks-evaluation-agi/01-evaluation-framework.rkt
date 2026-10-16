@@ -24,14 +24,16 @@
 
 (define (candidates)
   '(x 0 1 2 3 (+ x 1) (+ x 2) (+ x x) (- x 1) (- x x)
-    (* x 1) (* x 2) (* x 3) (* x x) (+ (* x 2) 1) (+ (* 2 x) 1) (+ (* x x) x) (+ 1 (* x x))))
+    (* x 1) (* x 2) (* x 3) (* x x) (+ (* x 2) 1) (+ (* x x) x) (+ 1 (* x x))))
 
+;; Returns (cons program tried), where tried counts every candidate
+;; evaluated, including the one that matched.
 (define (synthesize examples)
-  (let loop ([rest (candidates)] [n 0])
-    (cond [(null? rest) (cons #f n)]
+  (let loop ([rest (candidates)] [tried 1])
+    (cond [(null? rest) (cons #f (- tried 1))]
           [(andmap (lambda (ex) (= (eval-expr (car rest) (car ex)) (cdr ex))) examples)
-           (cons (car rest) n)]
-          [else (loop (cdr rest) (+ n 1))])))
+           (cons (car rest) tried)]
+          [else (loop (cdr rest) (+ tried 1))])))
 
 (define benchmark
   (list (list 'identity '((0 . 0) (1 . 1)) '((2 . 2) (3 . 3)))
@@ -40,21 +42,21 @@
         (list 'inc '((0 . 1) (1 . 2)) '((2 . 3) (5 . 6)))
         (list 'two-x-plus-one '((0 . 1) (1 . 3) (2 . 5)) '((3 . 7) (4 . 9)))))
 
-(struct result (name status prog train-acc test-acc size considered) #:transparent)
+(struct result (name status prog train-acc test-acc size tried) #:transparent)
 
 (define (run-task task)
   (match-define (list name train test) task)
-  (match-define (cons prog considered) (synthesize train))
+  (match-define (cons prog tried) (synthesize train))
   (if (not prog)
-      (result name 'fail #f 0.0 0.0 0 considered)
+      (result name 'fail #f 0.0 0.0 0 tried)
       (let* ([train-correct (count (lambda (ex) (= (eval-expr prog (car ex)) (cdr ex))) train)]
              [test-correct (count (lambda (ex) (= (eval-expr prog (car ex)) (cdr ex))) test)])
-        (result name 'solved prog (/ train-correct (length train)) (/ test-correct (length test)) (size prog) considered))))
+        (result name 'solved prog (/ train-correct (length train)) (/ test-correct (length test)) (size prog) tried))))
 
 (define (report-task r)
   (displayln (format "  ~a: ~a" (result-name r) (result-status r)))
   (when (eq? (result-status r) 'solved)
-    (displayln (format "    prog = ~a  (size ~a, considered ~a)" (result-prog r) (result-size r) (result-considered r)))
+    (displayln (format "    prog = ~a  (size ~a, tried ~a)" (result-prog r) (result-size r) (result-tried r)))
     (displayln (format "    train-acc=~a  test-acc=~a" (result-train-acc r) (result-test-acc r)))))
 
 (module+ main
@@ -68,10 +70,11 @@
   (displayln (format "Average train accuracy:  ~a" (exact->inexact (avg result-train-acc))))
   (displayln (format "Average test accuracy:   ~a" (exact->inexact (avg result-test-acc))))
   (displayln (format "Average program size:    ~a" (exact->inexact (avg result-size))))
-  (displayln (format "Average candidates tried:~a" (exact->inexact (avg result-considered)))))
+  (displayln (format "Average candidates tried: ~a" (exact->inexact (avg result-tried)))))
 
 (module+ test
   (require rackunit)
   (check-equal? (size '(+ (* x 2) 1)) 5)
-  (check-equal? (car (synthesize '((0 . 0) (1 . 1)))) 'x)
+  (check-equal? (synthesize '((0 . 0) (1 . 1))) '(x . 1))
+  (check-equal? (synthesize '((0 . 7))) (cons #f (length (candidates))))
   (check-equal? (result-status (run-task (list 'identity '((0 . 0) (1 . 1)) '((2 . 2) (3 . 3))))) 'solved))

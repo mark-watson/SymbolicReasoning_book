@@ -15,17 +15,29 @@
 ;; Grammar keeps ite guards shallow to bound enumeration: boolean
 ;; conditions are comparisons of depth-0 integer expressions only, so
 ;; gen-bool takes no depth argument.
-(define (gen-int depth)
-  (if (= depth 0)
-      '(x y 0 1)
-      (append
-       '(x y 0 1)
-       (for*/list ([a (gen-int (- depth 1))] [b (gen-int (- depth 1))]) `(+ ,a ,b))
-       (for*/list ([a (gen-int (- depth 1))] [b (gen-int (- depth 1))]) `(- ,a ,b))
-       (for*/list ([c (gen-bool)] [t (gen-int (- depth 1))] [e (gen-int (- depth 1))]) `(ite ,c ,t ,e)))))
+;;
+;; Programs are produced in layers: every depth-d program comes before any
+;; program of depth d+1, so the shallowest fitting program is found first.
+;; Each layer holds only the programs with at least one child from the
+;; layer just below, so no program is listed twice.
+(define int-leaves '(x y 0 1))
 
 (define (gen-bool)
-  (for*/list ([a (gen-int 0)] [b (gen-int 0)]) `(<= ,a ,b)))
+  (for*/list ([a int-leaves] [b int-leaves]) `(<= ,a ,b)))
+
+(define (gen-int depth)
+  (let loop ([d 0] [all int-leaves] [newest int-leaves])
+    (if (= d depth)
+        all
+        (let* ([new? (lambda (e) (member e newest))]
+               ;; ordered pairs (a b) from all x all with a or b in newest
+               [pairs (for*/list ([a all] [b all] #:when (or (new? a) (new? b)))
+                        (cons a b))]
+               [layer (append
+                       (for/list ([p pairs]) `(+ ,(car p) ,(cdr p)))
+                       (for/list ([p pairs]) `(- ,(car p) ,(cdr p)))
+                       (for*/list ([c (gen-bool)] [p pairs]) `(ite ,c ,(car p) ,(cdr p))))])
+          (loop (+ d 1) (append all layer) layer)))))
 
 (define (eval-dsl e x y)
   (match e
@@ -64,7 +76,6 @@
     (if prog
         (begin
           (displayln (format "  Synthesized: ~a" prog))
-          (displayln (format "  Note: (+ 0 e) is not simplified; grammar keeps it as is."))
           (displayln "  Verification:")
           (for ([ex examples])
             (displayln (format "    max2(~a,~a) = ~a (expected ~a)"
@@ -87,5 +98,9 @@
   (check-equal? (eval-dsl '(+ x y) 2 3) 5)
   (check-equal? (eval-dsl '(ite (<= x y) y x) 2 5) 5)
   (check-equal? (eval-dsl '(ite (<= x y) y x) 5 2) 5)
-  (check-not-false (sygus-synthesize examples 2))
+  (check-equal? (sygus-synthesize examples 2) '(ite (<= x y) y x))
+  ;; layered generation: no duplicates, shallow programs first
+  (let ([g (gen-int 1)])
+    (check-equal? (length g) (length (remove-duplicates g)))
+    (check-equal? (take g 4) '(x y 0 1)))
   (check-equal? (complete-sketch '(x y 0 1) examples) '(y x)))

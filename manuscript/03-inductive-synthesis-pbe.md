@@ -67,6 +67,8 @@ A version space is the set of every program in the DSL that fits the examples se
   (vs (vs-desc vs1) (filter (lambda (c) (member c (vs-candidates vs2))) (vs-candidates vs1))))
 ```
 
+`apply-operation` raises an error on an unknown operation name. If it fell back to identity, a misspelled name would pass every example where input equals output.
+
 The demo filters `hello -> olleh` down to `(reverse)` and `HELLO -> hello` down to `(to-lower)`:
 
 ```
@@ -90,10 +92,11 @@ This version stores the candidates as a plain list. With four candidates that co
 (define (eval-expr expr env)
   (match expr
     [(? number? n) n]
-    [(? symbol? s) (hash-ref env s s)]
+    [(? symbol? s) (hash-ref env s (lambda () (error 'eval-expr "unbound variable ~a" s)))]
     [`(+ ,a ,b) (+ (eval-expr a env) (eval-expr b env))]
     [`(* ,a ,b) (* (eval-expr a env) (eval-expr b env))]
-    [`(- ,a ,b) (- (eval-expr a env) (eval-expr b env))]))
+    [`(- ,a ,b) (- (eval-expr a env) (eval-expr b env))]
+    [_ (raise-argument-error 'eval-expr "arith expr" expr)]))
 
 (define (mutate prog) (replace-random-subtree prog (random-program 1)))
 (define (crossover p1 p2)
@@ -101,15 +104,16 @@ This version stores the candidates as a plain list. With four candidates that co
       (replace-random-subtree p1 (random-ref (subtrees p2)))
       (random-ref (list p1 p2))))
 
-(define (evolve population examples generations)
+(define (evolve population examples generations #:trace? [trace? #f])
   (let loop ([gen 0] [pop population])
     (if (>= gen generations) (argmax (lambda (p) (fitness p examples)) pop)
-        (let* ([scored (sort pop > #:key (lambda (p) (fitness p examples)))]
+        (let* ([scored (sort pop > #:key (lambda (p) (fitness p examples))
+                             #:cache-keys? #t)]
                [parents (take scored (max 2 (quotient (length scored) 2)))])
           (loop (+ gen 1) (append parents (for/list ([_ parents]) (mutate (crossover (random-ref parents) (random-ref parents))))))))))
 ```
 
-`fitness` evaluates a program with `(hash 'x input)` and scores it by negative error, so `0` is perfect. `evolve` keeps the top half of the population as parents and breeds the same number of children. A fixed `(random-seed 3)` at the top of the file makes the run repeat exactly:
+`fitness` evaluates a program with `(hash 'x input)` and scores it by negative error, so `0` is perfect. `evolve` keeps the top half of the population as parents and breeds the same number of children. `#:cache-keys? #t` makes `sort` compute each program's fitness once rather than once per comparison. The listing omits the per-generation trace, which prints only with `#:trace? #t`. The demo calls `(random-seed 3)` inside `main`, so the run repeats exactly without changing the random state of any file that requires this one:
 
 ```
 Gen 0: Best fitness = 0 prog (- (* 3 x) (* 1 x))

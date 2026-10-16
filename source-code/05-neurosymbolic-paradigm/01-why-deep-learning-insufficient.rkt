@@ -80,15 +80,20 @@
   (newline)
   (displayln "=== Part 3: XOR is not linearly separable ===")
   (define ws-xor (train-perceptron xor-data '(0 0 0) 50))
-  (displayln (format "XOR accuracy after 50 epochs: ~a (best possible 0.5)" (accuracy ws-xor xor-data)))
+  (displayln (format "XOR accuracy after 50 epochs: ~a" (accuracy ws-xor xor-data)))
+  (displayln "(A linear separator can get at most 3 of the 4 points right; the")
+  (displayln " perceptron rule never converges on XOR, so it keeps cycling.)")
   (show-preds ws-xor xor-data)
-  (displayln "A single perceptron cannot represent XOR. Deeper nets memorize")
-  (displayln "but do not learn the parity rule."))
+  (displayln "A single perceptron cannot represent XOR. A two-layer net can")
+  (displayln "represent it, but fitting four points says nothing about n-bit")
+  (displayln "parity: networks trained on short inputs typically fail on longer ones."))
 
 (module+ test
   (require rackunit)
   (check-equal? (accuracy (train-perceptron linear-data '(0 0 0) 20) linear-data) 1)
   (check-equal? (accuracy (train-perceptron xor-data '(0 0 0) 50) xor-data) 1/2)
+  ;; 3/4 is the best any linear separator does on XOR, e.g. OR's weights
+  (check-equal? (accuracy '(-1 2 2) xor-data) 3/4)
   (check-equal? (dot '(1 2) '(3 4)) 11)
   ;; Held-out AND case: never-seen positive is predicted negative
   (check-equal? (perceptron (cons 1 '(1 1))

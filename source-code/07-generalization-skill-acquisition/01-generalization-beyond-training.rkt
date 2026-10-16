@@ -4,7 +4,7 @@
 ;;; Modular arithmetic f(x)=(x+1) mod 4 learned from 4 examples suffices for all x.
 
 (provide eval-expr
-         candidates  ; renamed from gen-exprs: depth param was unused
+         candidates
          satisfies?
          synthesize
          hidden-f)
@@ -23,7 +23,10 @@
     [`(* ,a ,b) (* (eval-expr a x) (eval-expr b x))]
     [_ (raise-argument-error 'eval-expr "arith expr" e)]))
 
-;; Bounded candidate set used previously as gen-exprs (depth was unused)
+;; A fixed, hand-written candidate set: all leaves, unary and binary terms
+;; over leaves, plus a few deeper mod4 forms. A real system would
+;; enumerate these from a grammar; the point here is what happens once a
+;; fitting program is found, not how large the search is.
 (define (candidates)
   (define leaves '(x 0 1 2 3))
   (define unary (append (map (lambda (a) `(inc ,a)) leaves)
@@ -40,13 +43,10 @@
        (+ (mod4 x) 1) (+ 1 (mod4 x)) (* (mod4 x) 2) (* 2 (mod4 x)))))
   (remove-duplicates (append leaves unary binary)))
 
-;; Keep gen-exprs as alias for backward compatibility
-(define (gen-exprs depth) (candidates))
-
 (define (satisfies? prog examples)
   (andmap (lambda (ex) (= (eval-expr prog (car ex)) (cdr ex))) examples))
 
-(define (synthesize examples depth)
+(define (synthesize examples)
   (findf (lambda (e) (satisfies? e examples)) (candidates)))
 
 (define (hidden-f x) (modulo (+ x 1) 4))
@@ -56,7 +56,7 @@
   (cdr (argmin (lambda (ex) (abs (- x (car ex)))) examples)))
 
 (module+ main
-  (define prog (synthesize train-examples 3))
+  (define prog (synthesize train-examples))
   (displayln "=== Generalizing Beyond Training Distribution ===")
   (displayln (format "Training examples: ~a" train-examples))
   (displayln (format "Nearest-neighbor on unseen x=4: ~a (memorizes)" (nn-predict 4 train-examples)))
@@ -68,6 +68,6 @@
   (require rackunit)
   (check-equal? (hidden-f 3) 0)
   (check-equal? (eval-expr '(mod4 (+ x 1)) 3) 0)
-  (check-equal? (synthesize train-examples 3) '(mod4 (+ x 1)))
+  (check-equal? (synthesize train-examples) '(mod4 (+ x 1)))
   (check-false (equal? (nn-predict 4 train-examples) (hidden-f 4)))
   (check-not-false (member '(mod4 (+ x 1)) (candidates))))

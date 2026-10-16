@@ -44,8 +44,8 @@
   (displayln (format "Task3 (double∘inc): ~a" task3))
   (define no-macro (synthesize task3 2 '(id inc double)))
   (define with-macro (synthesize task3 1 '(id inc double macro)))
-  (displayln (format "  Without macro (depth 2, 9 candidates): ~a" no-macro))
-  (displayln (format "  With macro (depth 1, 4 candidates):    ~a" with-macro))
+  (displayln (format "  Without macro (depths 1-2, up to 3+9 candidates): ~a" no-macro))
+  (displayln (format "  With macro    (depth 1, up to 4 candidates):     ~a" with-macro))
   (displayln "Macro is hand-added; a full DreamCoder system would compress")
   (displayln "frequent compositions automatically."))
 

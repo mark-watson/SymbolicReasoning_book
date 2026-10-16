@@ -13,8 +13,6 @@
          crossover
          gp)
 
-(random-seed 42)
-
 ;; Language: (+ * -) over constants
 (define (eval-expr expr env)
   (match expr
@@ -73,11 +71,12 @@
     [else (random-ref (list p1 p2))]))
 
 ;; Genetic Programming loop. Generation traces print only when #:trace?.
-(define (gp population examples generations #:trace? [trace? #t])
+(define (gp population examples generations #:trace? [trace? #f])
   (let loop ([gen 0] [pop population])
     (if (>= gen generations)
         (argmax (lambda (p) (fitness p examples)) pop)
-        (let* ([scored (sort pop > #:key (lambda (p) (fitness p examples)))]
+        (let* ([scored (sort pop > #:key (lambda (p) (fitness p examples))
+                             #:cache-keys? #t)]
                [best (car scored)]
                [best-fitness (fitness best examples)])
           (when trace?
@@ -93,6 +92,8 @@
                 (loop (+ gen 1) (append parents offspring))))))))
 
 (module+ main
+  ;; Fixed seed so the demo transcript is reproducible run to run
+  (random-seed 42)
   (displayln "=== Genetic Programming Example ===")
 
   (define examples '((0 0) (1 2) (2 4) (3 6)))
@@ -112,7 +113,7 @@
   (displayln "")
 
   (displayln "Running GP for 3 generations:")
-  (define best (gp population examples 3))
+  (define best (gp population examples 3 #:trace? #t))
   (displayln (format "Best after 3 gens: ~a fitness ~a" best (fitness best examples)))
   (displayln "")
 
@@ -128,8 +129,14 @@
 (module+ test
   (require rackunit)
   (check-equal? (eval-expr '(+ 1 2) '()) 3)
-  (check-true (or (number? (mutate '(+ 1 2))) (list? (mutate '(+ 1 2)))))
-  (check-true (number? (fitness '(+ 1 1) '((0 2)))))
-  ;; subtree crossover preserves number-or-list shape
-  (check-true (or (number? (crossover '(+ 1 2) '(* 3 4))) (list? (crossover '(+ 1 2) '(* 3 4)))))
-  (check-equal? (fitness 2 '((0 2) (1 2))) 0))
+  (check-equal? (fitness 2 '((0 2) (1 2))) 0)
+  (check-equal? (fitness '(+ 1 1) '((0 5))) -3)
+  ;; mutation and crossover always yield programs the evaluator accepts
+  (for ([_ (in-range 50)])
+    (check-pred number? (eval-expr (mutate '(+ 1 (* 2 3))) '()))
+    (check-pred number? (eval-expr (crossover '(+ 1 2) '(* 3 (- 4 5))) '())))
+  ;; gp returns a member of the evolving population and never gets worse
+  (let* ([pop (for/list ([_ (in-range 10)]) (random-program 2))]
+         [best (gp pop '((0 4)) 3)])
+    (check-true (>= (fitness best '((0 4)))
+                    (apply max (map (lambda (p) (fitness p '((0 4)))) pop))))))

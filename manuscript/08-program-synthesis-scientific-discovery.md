@@ -91,7 +91,7 @@ This is the data-efficiency advantage of synthesis in scientific domains: strong
 
 ## Causal and Temporal Reasoning in Synthesis
 
-Correlation is not causation. A model that merely fits a curve to past observations will happily predict a hospitalization drop when vaccination rises, but it cannot answer "what hospital level would we see if we doubled vaccination?" or "what if infections were eliminated by a new drug?" Those are *counterfactual* questions, and answering them requires a model that encodes structural (mechanistic) relationships, not just statistical ones.
+Correlation is not causation. A model that merely fits a curve to past observations will happily predict a hospitalization drop when vaccination rises, but it cannot answer "what hospital level would we see if we doubled vaccination?" or "what if infections were eliminated by a new drug?" Those are *interventional* questions, and answering them requires a model that encodes structural (mechanistic) relationships, not just statistical ones. Pearl places interventions on the second rung of his ladder of causation. True counterfactuals sit on the third rung: "would this patient have been hospitalized had they been vaccinated?" Answering one means first inferring the patient's unobserved background factors from what happened, then intervening. The linear model below has no per-patient noise to infer, so it stops at interventions.
 
 The example `03-causal-reasoning.rkt` builds a tiny causal model with three variables—`vaccinate`, `infection`, and `hospital`—and two directed causal links:
 
@@ -105,19 +105,26 @@ Each node also has a baseline value; the links specify how parent's value shifts
 
 ```racket
 (define (link-strength from to)
-  (for/first ([l links] #:when (and (eq? (first l) from) (eq? (second l) to))) (third l)))
+  (or (for/first ([l links] #:when (and (eq? (first l) from) (eq? (second l) to)))
+        (third l))
+      (error 'link-strength "no causal link ~a -> ~a" from to)))
 
 (define (propagate interventions)
   (define vaccinate (hash-ref interventions 'vaccinate (hash-ref baseline 'vaccinate)))
   (define infection
-    (if (hash-has-key? interventions 'infection) (hash-ref interventions 'infection)
-        (clamp01 (+ (hash-ref baseline 'infection) (* (or (link-strength 'vaccinate 'infection) -0.7) vaccinate)))))
+    (if (hash-has-key? interventions 'infection)
+        (hash-ref interventions 'infection)
+        (clamp01 (+ (hash-ref baseline 'infection)
+                    (* (link-strength 'vaccinate 'infection) vaccinate)))))
   (define hospital
-    (if (hash-has-key? interventions 'hospital) (hash-ref interventions 'hospital)
-        (clamp01 (+ (hash-ref baseline 'hospital) (* (or (link-strength 'infection 'hospital) 0.8) infection)))))
+    (if (hash-has-key? interventions 'hospital)
+        (hash-ref interventions 'hospital)
+        (clamp01 (+ (hash-ref baseline 'hospital)
+                    (* (link-strength 'infection 'hospital) infection)))))
   (hash 'vaccinate vaccinate 'infection infection 'hospital hospital))
-;; links is now read via link-strength, not hard-coded
 ```
+
+Every strength comes from `links`. A missing link raises an error rather than falling back to a default, so editing `links` is the only way to change the model. `clamp01` comes from `utils/math.rkt`. The order of the three `define`s is the topological order of the graph; a general version would sort the nodes from `links`.
 
 The three scenarios in the example are:
 
@@ -149,11 +156,11 @@ The example `04-equation-discovery-kepler.rkt` does exactly that. The grammar is
   (remove-duplicates
    (append atoms unary
            (for*/list ([x atoms] [y (append atoms unary)]) `(* ,x ,y))
-           (for*/list ([x (list 'a)] [y unary]) `(* ,x ,y))
            (for*/list ([x atoms] [y unary]) `(+ ,x ,y)))
    equal?))
-;; duplicate (* a (pow2 a)) now removed; fit-error is arity 1 and closes over observations
 ```
+
+`fit-error` takes one argument, the law, and closes over `observations`.
 
 Six observations, with small noise, are provided for a in the range 1.0 to 3.5 (true law `T^2 = a^3`):
 

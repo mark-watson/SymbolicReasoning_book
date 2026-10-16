@@ -53,18 +53,20 @@ Learned weights: (0 0 0)
 Held-out prediction 0 vs true 1 -> FAIL (never saw a positive, cannot extrapolate)
 ```
 
-Every training point was negative, so the perceptron rule never fired a single update and the weights stayed at zero. The model has no machinery for guessing that some unseen input pattern could be positive — it can only carve up what it has seen. (`dot` is imported from `utils/math.rkt`, and the file’s `accuracy` and `show-preds` are exported with an explicit `provide`.) Third, on XOR the perceptron plateaus at accuracy `1/2` no matter how many epochs it runs, because XOR is not linearly separable:
+Every training point was negative, so the perceptron rule never fired a single update and the weights stayed at zero. The model has no machinery for guessing that some unseen input pattern could be positive; it can only carve up what it has seen. (`dot` is imported from `utils/math.rkt`, and the file’s `accuracy` and `show-preds` are exported with an explicit `provide`.) Third, on XOR the perceptron rule never converges, because XOR is not linearly separable. The weights keep cycling, and after 50 epochs they score `1/2`:
 
 ```
 === Part 3: XOR is not linearly separable ===
 XOR accuracy after 50 epochs: 1/2
+(A linear separator can get at most 3 of the 4 points right; the
+ perceptron rule never converges on XOR, so it keeps cycling.)
   Input (0 0) -> predict 1, true 0
   Input (0 1) -> predict 1, true 1
   Input (1 0) -> predict 0, true 1
   Input (1 1) -> predict 0, true 0
 ```
 
-A deeper network would memorize XOR, but memorization is not the same as learning the parity rule. The model that memorizes XOR has no machinery for generalizing parity to longer bitstrings. What is missing is a symbolic layer that can state *what* the function is, not just approximate it on the training distribution.
+The best any line can do is 3 of 4: the OR weights `(-1 2 2)` get every point right except `(1 1)`. A two-layer network can represent XOR exactly, so depth fixes this case. It does not fix the general problem. Fitting the four points of 2-bit XOR says nothing about 10-bit parity, and networks trained on short bitstrings typically fail on longer ones. What is missing is a symbolic layer that can state *what* the function is, not just approximate it on the training distribution.
 
 ## The Synergy of Neural Networks and Symbolic Search
 
@@ -72,7 +74,7 @@ The neurosymbolic response to these failures is to give each component of the sy
 
 The classic testbed for this division of labor is the digit-addition task. Given two images of handwritten digits, the system must output their sum. A purely neural model trained end-to-end on pairs of images and their sums tends to memorize the training pairs and fails on unseen digit combinations. A neurosymbolic pipeline, in contrast, trains a network to recognize individual digits and then *symbolically adds* the resulting integers.
 
-The example `02-neural-symbolic-synergy.rkt` captures this architecture with a minimal stand-in for the perceptual network: a nearest-neighbor classifier over hand-coded 3x3 bitmaps. The `0` and `6` patterns are now distinct (the early draft duplicated them, making them indistinguishable), and `hamming` is imported from `utils/math.rkt`:
+The example `02-neural-symbolic-synergy.rkt` captures this architecture with a minimal stand-in for the perceptual network: a nearest-neighbor classifier over hand-coded 3x3 bitmaps. The `0` and `6` patterns differ in one pixel (the early draft duplicated them, making them indistinguishable), and `hamming` is imported from `utils/math.rkt`:
 
 ```racket
 (define (recognize-digit pattern)
@@ -204,7 +206,7 @@ The neurosymbolic synthesizer, in contrast, separates the problem into two stage
          (gen-exprs depth)))
 ```
 
-The synthesizer returns the first program that satisfies the example; because the grammar is finite and the evaluator is symbolic, the result is guaranteed to be correct on the evidence it has seen. In this run it returns `(+ x x)`:
+`gen-exprs` sorts its candidates by node count, so the synthesizer returns the smallest program that satisfies the example. Because the grammar is finite and the evaluator is symbolic, the result is guaranteed to be correct on the evidence it has seen. In this run it returns `(+ x x)`:
 
 ```
 === Neurosymbolic synthesizer ===
@@ -246,7 +248,7 @@ The split of duties is strict. The proposer decides which candidates to try firs
     (values (cons ctx s) (log (/ (add1 (hash-ref counts (cons ctx s) 0)) total)))))
 ```
 
-Add-one smoothing keeps every production possible, so the proposer can still reach programs unlike anything in its corpus. The log probability of a program is the sum over its nodes, and `learned-order` sorts all 8,116 programs up to depth 2 by that score. The uniform baseline keeps the usual smallest-first order.
+Add-one smoothing keeps every production possible, so the proposer can still reach programs unlike anything in its corpus. The log probability of a program is the sum over its nodes, and `learned-order` sorts all 8,116 programs up to depth 2 by that score. The uniform baseline sorts the same programs by node count, smallest first. That sort matters for a fair comparison. An earlier draft listed all `+` programs, then all `*`, then all `-`. That order favored any task with a `+` answer: it found `2x + 3` as `(+ x (+ x 3))` after 16 candidates, so the result measured operator order as much as the prior.
 
 The search itself is the CEGIS loop of Chapter 4, with one change: it walks candidates in whatever order it is given.
 
@@ -278,19 +280,19 @@ First five proposals, uniform: (x 1 2 3 (+ x x))
 First five proposals, learned: (x 1 2 3 (* x x))
 
 task        uniform tried             learned tried
-2x + 3      16  (+ x (+ x 3))         59  (+ (* 2 x) 3)
-3x - 1      292  (+ (+ x x) (- x 1))  59  (- (* 3 x) 1)
-x^2 + 2     139  (+ 2 (* x x))        42  (+ (* x x) 2)
-(x - 1)^2   6589  (* (- x 1) (- x 1)) 4324  (* (- x 1) (- x 1))
+2x + 3      60  (+ x (+ x 3))         59  (+ (* 2 x) 3)
+3x - 1      1128  (- (* x 3) 1)       59  (- (* 3 x) 1)
+x^2 + 2     175  (+ 2 (* x x))        42  (+ (* x x) 2)
+(x - 1)^2   5169  (* (- x 1) (- x 1)) 4324  (* (- x 1) (- x 1))
 ```
 
 Three lessons are in this table.
 
-First, the proposer pays off on tasks that look like its training data. `3x - 1` costs 292 candidates without the prior and 59 with it, and `x^2 + 2` drops from 139 to 42.
+First, the proposer pays off on tasks that look like its training data. `3x - 1` costs 1,128 candidates without the prior and 59 with it, and `x^2 + 2` drops from 175 to 42.
 
 Second, the proposer still reaches tasks it has never seen. Nothing in the corpus squares a difference, yet `(x - 1)^2` is found, and found sooner, because smoothing leaves every production a nonzero probability and the corpus still teaches useful habits about `*` and `-`.
 
-Third, a prior is not free. On `2x + 3` the uniform order wins, 16 candidates to 59, because it stumbles early on `(+ x (+ x 3))`, an equivalent program the corpus considers odd. The learned proposer returns `(+ (* 2 x) 3)` instead: the form a person would write, and the form its corpus taught it. LLMs show the same trait at scale. They are fast on idiomatic code and slower, or wrong, on code unlike what they were trained on, and the verifier is what keeps "wrong" from reaching the user.
+Third, the prior shapes the answer as well as the cost. On `2x + 3` the two orders tie, 60 candidates to 59, but they return different programs. The uniform order finds `(+ x (+ x 3))`, an equivalent program the corpus considers odd. The learned proposer returns `(+ (* 2 x) 3)`: the form a person would write, and the form its corpus taught it. A prior is not free, either. A task far from the corpus can sit lower in the learned order than in the uniform one, and then the prior costs candidates instead of saving them. LLMs show the same trait at scale. They are fast on idiomatic code and slower, or wrong, on code unlike what they were trained on, and the verifier is what keeps "wrong" from reaching the user.
 
 ### From the toy to an LLM
 

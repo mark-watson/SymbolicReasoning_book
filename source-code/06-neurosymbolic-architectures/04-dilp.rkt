@@ -9,26 +9,28 @@
          loss grad learn softmax
          the-db positives negatives)
 
+;; Functions below name their database argument kb, not db, so the
+;; db constructor is not shadowed inside them.
 (struct db (parent sibling) #:transparent)
 
-(define (holds? db rel x y)
+(define (holds? kb rel x y)
   (and (member (cons x y)
                (case rel
-                 [(parent) (db-parent db)]
-                 [(sibling) (db-sibling db)]))
+                 [(parent) (db-parent kb)]
+                 [(sibling) (db-sibling kb)]))
        #t))
 
 ;; The constants that intermediate variables (y) range over, derived from
 ;; the database so new facts add their people automatically.
-(define (db-constants db)
+(define (db-constants kb)
   (remove-duplicates
-   (append (append-map (lambda (p) (list (car p) (cdr p))) (db-parent db))
-           (append-map (lambda (p) (list (car p) (cdr p))) (db-sibling db)))))
+   (append (append-map (lambda (p) (list (car p) (cdr p))) (db-parent kb))
+           (append-map (lambda (p) (list (car p) (cdr p))) (db-sibling kb)))))
 
-(define (eval-rule r db x z)
+(define (eval-rule r kb x z)
   (define (chain rel1 rel2)
-    (for/or ([y (db-constants db)])
-      (and (holds? db rel1 x y) (holds? db rel2 y z))))
+    (for/or ([y (db-constants kb)])
+      (and (holds? kb rel1 x y) (holds? kb rel2 y z))))
   (case r
     [(R1) (if (chain 'parent 'parent) 1.0 0.0)]
     [(R2) (if (chain 'parent 'sibling) 1.0 0.0)]
@@ -40,8 +42,8 @@
   (define sum (apply + exps))
   (map (lambda (e) (/ e sum)) exps))
 
-(define (infer-grandparent weights db x z)
-  (define scores (for/list ([r '(R1 R2 R3)]) (eval-rule r db x z)))
+(define (infer-grandparent weights kb x z)
+  (define scores (for/list ([r '(R1 R2 R3)]) (eval-rule r kb x z)))
   (define probs (softmax weights))
   (apply + (map * probs scores)))
 

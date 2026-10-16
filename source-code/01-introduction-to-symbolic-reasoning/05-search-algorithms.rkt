@@ -16,7 +16,11 @@
 (define (get-neighbors node)
   (map cdr (filter (lambda (e) (equal? (car e) node)) graph)))
 
-;; Generic graph search parameterized by frontier strategy
+;; Generic graph search parameterized by frontier strategy.
+;; Nodes are marked visited when they are queued, not when they are expanded.
+;; That keeps BFS optimal and both searches finite; for DFS it means the
+;; expansion order can differ from textbook recursive DFS, though any path
+;; it returns is still valid.
 ;; combiner: (new-paths rest -> new-frontier)
 ;; trace?: when #t prints processing steps
 (define (search start goal combiner #:trace? [trace? #f])

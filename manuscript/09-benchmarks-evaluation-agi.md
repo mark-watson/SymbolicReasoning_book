@@ -20,48 +20,47 @@ The example `01-evaluation-framework.rkt` sets the baseline. Rather than report 
 
 The four numbers we care about for any synthesis benchmark are:
 
-1. **Train accuracy** — did the synthesizer find a program consistent with the data it saw?
-2. **Test accuracy** — does that program generalize to held-out inputs?
-3. **Program size** — how parsimonious is the explanation? A compact program is more likely to have captured the underlying rule than a memorized lookup table.
-4. **Candidates considered** — how efficient was the search? A synthesizer that brute-forces 10,000 candidates to find a 3-node program is doing something qualitatively different from one that finds it after 8 candidate evaluations.
+1. **Train accuracy**: did the synthesizer find a program consistent with the data it saw?
+2. **Test accuracy**: does that program generalize to held-out inputs?
+3. **Program size**: how parsimonious is the explanation? A compact program is more likely to have captured the underlying rule than a memorized lookup table.
+4. **Candidates tried**: how efficient was the search? A synthesizer that brute-forces 10,000 candidates to find a 3-node program is doing something qualitatively different from one that finds it after 8 candidate evaluations.
 
 The benchmark suite in the example consists of five small algebraic tasks (identity, double, square, increment, two-x-plus-one), each defined by a train set and a held-out test set. The synthesizer is a simple candidate-list enumerator over a fixed set of expressions:
 
 ```racket
 (define (synthesize examples)
-  (let loop ((rest (candidates)) (n 0))
-    (cond
-      [(null? rest) (cons #f n)]
-      [(andmap (lambda (ex)
-                 (= (eval-expr (car rest) (car ex)) (cdr ex)))
-               examples)
-       (cons (car rest) n)]
-      [else (loop (cdr rest) (+ n 1))])))
+  (let loop ([rest (candidates)] [tried 1])
+    (cond [(null? rest) (cons #f (- tried 1))]
+          [(andmap (lambda (ex) (= (eval-expr (car rest) (car ex)) (cdr ex))) examples)
+           (cons (car rest) tried)]
+          [else (loop (cdr rest) (+ tried 1))])))
 ```
+
+`tried` counts every candidate the loop evaluates, including the one that matched, so a hit on the first candidate reports `1`, not `0`.
 
 The harness walks each task, runs the synthesizer, and assembles per-task reports. The full `run-task` from `01-evaluation-framework.rkt`, whose `result` struct carries the four metrics:
 
 ```racket
-(struct result (name status prog train-acc test-acc size considered) #:transparent)
+(struct result (name status prog train-acc test-acc size tried) #:transparent)
 
 (define (run-task task)
   (match-define (list name train test) task)
-  (match-define (cons prog considered) (synthesize train))
+  (match-define (cons prog tried) (synthesize train))
   (if (not prog)
-      (result name 'fail #f 0.0 0.0 0 considered)
+      (result name 'fail #f 0.0 0.0 0 tried)
       (let* ([train-correct (count (lambda (ex) (= (eval-expr prog (car ex)) (cdr ex))) train)]
              [test-correct  (count (lambda (ex) (= (eval-expr prog (car ex)) (cdr ex))) test)])
-        (result name 'solved prog (/ train-correct (length train)) (/ test-correct (length test)) (size prog) considered))))
+        (result name 'solved prog (/ train-correct (length train)) (/ test-correct (length test)) (size prog) tried))))
 ```
 
 Running the example produces a per-task report and an aggregate summary:
 
 ```
   identity: solved
-    prog = x  (size 1, considered 0)
+    prog = x  (size 1, tried 1)
     train-acc=1  test-acc=1
   double: solved
-    prog = (+ x x)  (size 3, considered 7)
+    prog = (+ x x)  (size 3, tried 8)
     train-acc=1  test-acc=1
   ...
 
@@ -69,7 +68,7 @@ Solved 5 / 5 tasks
 Average train accuracy:  1.0
 Average test accuracy:   1.0
 Average program size:    3.0
-Average candidates tried:7.8
+Average candidates tried: 8.8
 ```
 
 This shape matters: for AGI evaluation we want per-task visibility into correctness, generalization, parsimony, and search cost, not a single leaderboard number that hides the distinction between a memorizer and a reasoner.
@@ -93,12 +92,11 @@ The example `02-arc-style-task.rkt` implements a 1-D analogue. The grid is a lis
 Given two training pairs, the synthesizer finds every DSL entry that is consistent with both:
 
 ```racket
+(define (consistent-with-train? fn [train-pairs train])
+  (andmap (lambda (pair) (equal? (fn (car pair)) (cdr pair))) train-pairs))
+
 (define (solve-arc train-pairs)
-  (filter (lambda (entry)
-            (andmap (lambda (pair)
-                      (equal? ((cdr entry) (car pair)) (cdr pair)))
-                    train-pairs))
-          dsl))
+  (filter (lambda (entry) (consistent-with-train? (cdr entry) train-pairs)) dsl))
 ```
 
 For the chosen training pairs the answer is uniquely `reverse`. The system then applies the discovered transformation to a held-out test input and checks the prediction:
@@ -144,34 +142,60 @@ Two patterns in the table matter for this book. First, the gains come from hybri
 
 ARC tests *novelty* (a rule never seen before); SCAN and similar benchmarks test *compositionality*: the ability to generalize to longer or structurally richer commands than any seen during training.
 
-The example `03-compositional-benchmark.rkt` builds a 1-D SCAN analogue. Commands are sequences of atoms from `{walk look jump run}` combined with `and` (sequencing) and `twice` (repetition). The training set covers only short commands (length ≤ 2 tokens of meaning); the test set requires longer compositions such as `(walk and look) twice`, which expects the output `(walk look walk look)`.
+The example `03-compositional-benchmark.rkt` builds a 1-D SCAN analogue. Commands are sequences of atoms from `{walk look jump run}` combined with `and` (sequencing) and `twice` (repetition). As in SCAN, `and` binds more loosely than `twice`, so `walk and look twice` means `walk`, then `look twice`, and expects `(walk look look)`. The training set holds single commands, `x and y` pairs, and `x twice`. The test set combines `and` with `twice` in one command, which no training example does. The second test also uses `run`, which appears in the command table but in no training example.
 
-Two synthesizers are compared. The **length-bounded synthesizer** now filters to known commands before expanding, so `and`/`twice` no longer silently vanish; it still fails structurally because it truncates to two tokens:
+Two strategies are compared. The **length-bounded baseline** ignores structure. It keeps the known commands, expands the first two, and drops the modifiers:
 
 ```racket
 (define (length-bounded-synth tokens bounded)
   (define known (filter (lambda (t) (assoc t command-table)) tokens))
-  (if (<= (length tokens) bounded) (expand-command known) (expand-command (take known bounded))))
-;; expand-command now raises on unknown tokens: (expand-command '(foo)) => contract error
+  (expand-command (take known (min bounded (length known)))))
 ```
 
-The **compositional synthesizer** is a small recursive parser for the grammar
+The **compositional interpreter** is a small recursive-descent parser for the grammar
 
 ```
-expr     :=  seq [twice]
-seq      :=  primary (and primary)*
+seq      :=  term (and term)*
+term     :=  primary [twice]
 primary  :=  walk | look | jump | run
 ```
 
-which evaluates any composition and therefore composes past the training distribution. Running the example:
+```racket
+(define (parse-expr tokens)
+  (define (parse-primary toks)
+    (and (pair? toks)
+         (assoc (car toks) command-table)
+         (cons (car toks) (cdr toks))))
+  (define (parse-term toks)
+    (define p (parse-primary toks))
+    (cond [(not p) #f]
+          [(and (pair? (cdr p)) (eq? (cadr p) 'twice))
+           (cons (list 'twice (car p)) (cddr p))]
+          [else p]))
+  (define (parse-seq toks)
+    (let loop ([acc (parse-term toks)])
+      (cond [(not acc) #f]
+            [(and (pair? (cdr acc)) (eq? (cadr acc) 'and))
+             (define rhs (parse-term (cddr acc)))
+             (and rhs (loop (cons (list 'and (car acc) (car rhs)) (cdr rhs))))]
+            [else acc])))
+  (define s (parse-seq tokens))
+  (and s (null? (cdr s)) (car s)))
+```
+
+Each inner parser returns the tree it built paired with the tokens it did not consume. `parse-expr` succeeds only when no tokens remain, so `(walk walk walk)` is a parse failure rather than a silent `walk`. The grammar puts `twice` inside `term` and `and` in `seq`, which gives `and` the lower precedence: `(walk and look twice)` parses to `(and walk (twice look))`. `eval-program` then expands the tree, and `interpret` combines the two steps.
+
+The parser is written by hand, not learned, so the demo first checks it against the training data. Running the example:
 
 ```
---- Length-bounded synthesizer (max depth 2) ---
-  (walk and look twice) -> (walk) (expected (walk look walk look)) FAIL
-  (jump and run twice) -> (jump) (expected (jump run jump run)) FAIL
---- Compositional synthesizer (recursive parse) ---
-  (walk and look twice) -> (walk look walk look) (expected ...) OK
-  (jump and run twice)  -> (jump run jump run)   (expected ...) OK
+Compositional interpreter reproduces all 8 train examples: #t
+
+--- Length-bounded baseline (first 2 commands) ---
+  (walk and look twice) -> (walk look) (expected (walk look look)) FAIL
+  (jump and run twice) -> (jump run) (expected (jump run run)) FAIL
+--- Compositional interpreter (recursive parse) ---
+  (walk and look twice) -> (walk look look) (expected (walk look look)) OK
+  (jump and run twice) -> (jump run run) (expected (jump run run)) OK
 ```
 
 The gap between the two strategies is the gap between systems that memorize lengths and systems that model grammar. That is the SCAN question in one slide.
@@ -181,10 +205,10 @@ The gap between the two strategies is the gap between systems that memorize leng
 The final example aggregates these ideas into a small leaderboard. We run three learning strategies across a battery of three tasks (identity, double, square) and report train accuracy, test accuracy, and the *generalization gap* `train - test`. The example `04-generalization-gap-leaderboard.rkt` defines the runners:
 
 - **Nearest-neighbor memorization** wraps a closure that always returns the value of the closest training input.
-- **Simple grammar** enumerates `{x, 1, 2, 3, x+1, 2x, 3x}` — enough for identity and double but not square.
+- **Simple grammar** enumerates `{x, 1, 2, 3, x+1, 2x, 3x}`, enough for identity and double but not square.
 - **Rich grammar** adds `x*x`, `2x+1`, and `x*x + x`.
 
-Dead `parse-tokens` is removed; `eval-program` and `parse-expr` now signal errors on unknown symbols instead of returning `()`.
+`eval-linear` raises an error on an expression outside its grammar, rather than returning `#f` and failing later inside `=`.
 
 The leaderboard printing function computes per-task accuracy and averages, and `synth->fn` distinguishes a failed synthesis (`no-program`, tagged `no-coverage` in the report) from a program that scores `0.0`:
 
@@ -192,12 +216,15 @@ The leaderboard printing function computes per-task accuracy and averages, and `
 (define (synth->fn result)
   (cond [(procedure? result) result]
         [(or (symbol? result) (list? result) (number? result)) (lambda (x) (eval-linear result x))]
-        [(not result) (lambda (x) 'no-program)]))
+        [(not result) (lambda (x) 'no-program)]
+        [else (lambda (x) #f)]))
 
 (define (display-results label runs)
   (displayln (format "--- ~a ---" label))
   (for ([r runs])
-    (define tag (if (not (result-prog r)) "no-coverage" (format "prog ~a" (result-prog r))))
+    (define tag (cond [(not (result-prog r)) "no-coverage"]
+                      [(procedure? (result-prog r)) "lookup table"]
+                      [else (format "prog ~a" (result-prog r))]))
     (displayln (format "  ~a: train ~a  test ~a  ~a"
                        (result-name r)
                        (exact->inexact (result-train-acc r))
@@ -210,18 +237,18 @@ The output is a clean demonstration of what each metric means:
 
 ```
 --- Nearest-neighbor memorization ---
-  identity: train 1.0  test 0.0
-  double: train 1.0  test 0.0
-  square: train 1.0  test 0.0
+  identity: train 1.0  test 0.0  lookup table
+  double: train 1.0  test 0.0  lookup table
+  square: train 1.0  test 0.0  lookup table
   avg train-acc = 1.0, avg test-acc = 0.0, avg gap = 1.0
 --- Simple grammar  (no square) ---
-  identity: train 1.0  test 1.0
-  double: train 1.0  test 1.0
+  identity: train 1.0  test 1.0  prog x
+  double: train 1.0  test 1.0  prog (* x 2)
   square: train 0.0  test 0.0  no-coverage
-  avg train-acc = 0.67, avg test-acc = 0.67, avg gap = 0.0
+  avg train-acc = 0.6666666666666666, avg test-acc = 0.6666666666666666, avg gap = 0.0
 --- Rich grammar    (with square) ---
-  identity: train 1.0  test 1.0
-  double: train 1.0  test 1.0
+  identity: train 1.0  test 1.0  prog x
+  double: train 1.0  test 1.0  prog (* x 2)
   square: train 1.0  test 1.0  prog (* x x)
   avg train-acc = 1.0, avg test-acc = 1.0, avg gap = 0.0
 ```

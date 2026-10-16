@@ -30,7 +30,6 @@
   (remove-duplicates
    (append atoms unary
            (for*/list ([x atoms] [y (append atoms unary)]) `(* ,x ,y))
-           (for*/list ([x (list 'a)] [y unary]) `(* ,x ,y))
            (for*/list ([x atoms] [y unary]) `(+ ,x ,y)))
    equal?))
 

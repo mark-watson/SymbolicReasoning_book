@@ -14,6 +14,7 @@
          find-all
          isa-closure
          isa-closure-set
+         isa-ancestors
          inherits?)
 
 (require racket/set)
@@ -39,10 +40,7 @@
 
 ;; Query with exact or wildcard (#f = wildcard). Returns #f if no match.
 (define (query subj pred obj)
-  (define s (if (eq? subj #f) #f subj))
-  (define p (if (eq? pred #f) #f pred))
-  (define o (if (eq? obj #f) #f obj))
-  (let ([res (find-triples #:subj s #:pred p #:obj o)])
+  (let ([res (find-triples #:subj subj #:pred pred #:obj obj)])
     (if (null? res) #f res)))
 
 ;; Find all properties of an object
@@ -55,22 +53,26 @@
   (for/list ([t (find-triples #:subj subj #:pred pred)])
     (triple-obj t)))
 
-;; Proper transitive closure with visited set, handles diamonds and cycles
-(define (isa-closure-set start)
-  (let loop ([frontier (list start)] [seen (set)])
+;; Breadth-first walk up the isa links with a visited set, so diamonds and
+;; cycles terminate. Returns start followed by its ancestors, nearest first.
+(define (isa-ancestors start)
+  (let loop ([frontier (list start)] [seen (set start)] [order '()])
     (if (null? frontier)
-        seen
+        (reverse order)
         (let* ([node (car frontier)]
-               [rest (cdr frontier)]
-               [parents (find-all node 'isa)]
-               [new-pars (filter-not (lambda (p) (set-member? seen p)) parents)])
-          (loop (append rest new-pars) (set-add seen node))))))
+               [new-pars (remove-duplicates
+                          (filter-not (lambda (p) (set-member? seen p))
+                                      (find-all node 'isa)))])
+          (loop (append (cdr frontier) new-pars)
+                (foldl (lambda (p s) (set-add s p)) seen new-pars)
+                (cons node order))))))
 
+(define (isa-closure-set start)
+  (list->set (isa-ancestors start)))
+
+;; (isa-closure obj acc): ancestors of obj, nearest first, appended to acc
 (define (isa-closure obj acc)
-  ;; Legacy signature: (isa-closure obj acc) returns ancestors appended to acc
-  ;; New impl delegates to set version
-  (define ancestors (set->list (set-remove (isa-closure-set obj) obj)))
-  (append ancestors acc))
+  (append (cdr (isa-ancestors obj)) acc))
 
 ;; Check if obj inherits property (pred -> val) via isa chain
 (define (inherits? obj pred val)
@@ -159,4 +161,9 @@
   (clear-network!)
   (add-triple! 'x 'isa 'y)
   (add-triple! 'y 'isa 'x)
-  (check-equal? (set-count (isa-closure-set 'x)) 2))
+  (check-equal? (set-count (isa-closure-set 'x)) 2)
+  ;; isa-closure is ordered nearest ancestor first
+  (clear-network!)
+  (add-triple! 'mammal 'isa 'animal)
+  (add-triple! 'dog 'isa 'mammal)
+  (check-equal? (isa-closure 'dog '()) '(mammal animal)))

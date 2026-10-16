@@ -25,7 +25,7 @@ The example file `01-propositional-logic.rkt` builds a propositional evaluator w
 (define (logical-and a b) (if (and a b) #t #f))
 (define (logical-or a b)  (if (or a b) #t #f))
 (define (logical-not a)   (if a #f #t))
-(define (logical-implies a b) (if a b #t))
+(define (logical-implies a b) (if a (if b #t #f) #t))
 
 (define (truth-table vars expr)
   (for/list ([i (in-range (expt 2 (length vars)))])
@@ -167,12 +167,13 @@ The forward chaining engine in `03-forward-chaining.rkt` derives new facts from 
 (define (forward-chain rules facts max-iterations #:trace? [trace? #f])
   (let loop ([all-facts facts] [iter 0])
     (if (>= iter max-iterations) all-facts
-        (let ([all-new (append-map (lambda (r) (derive-once r all-facts)) rules)])
+        (let ([all-new (remove-duplicates
+                        (append-map (lambda (r) (derive-once r all-facts)) rules))])
           (if (null? all-new) all-facts
               (loop (append all-new all-facts) (+ iter 1)))))))
 ```
 
-`current-facts` is a parameter, not a plain `set!` global, so tests can isolate knowledge bases and `(require "03-forward-chaining.rkt")` no longer prints at load time. Demos live inside `(module+ main ...)`. `derive-once` uses `append-map` instead of mutating `set!` and `append`, and the trace is opt-in via `#:trace?`.
+`current-facts` is a parameter, not a plain `set!` global, so tests can isolate knowledge bases and `(require "03-forward-chaining.rkt")` no longer prints at load time. Demos live inside `(module+ main ...)`. `derive-once` uses `append-map` instead of `set!` and `append`, and the trace is opt-in via `#:trace?`. A fact can follow from several bindings in one round: with edges `a->b`, `a->c`, `b->d`, `c->d`, the fact `(reach a d)` has two derivations. Both `derive-once` and `forward-chain` call `remove-duplicates`, so the fact is stored once.
 
 Here is sample output:
 
@@ -232,6 +233,18 @@ Raw logic alone is insufficient for real-world applications. We need structured 
                          (or (not obj)  (eq? (triple-obj t) obj))))
     t))
 
+(define (isa-ancestors start)
+  (let loop ([frontier (list start)] [seen (set start)] [order '()])
+    (if (null? frontier)
+        (reverse order)
+        (let* ([node (car frontier)]
+               [new-pars (remove-duplicates
+                          (filter-not (lambda (p) (set-member? seen p))
+                                      (find-all node 'isa)))])
+          (loop (append (cdr frontier) new-pars)
+                (foldl (lambda (p s) (set-add s p)) seen new-pars)
+                (cons node order))))))
+
 (define (inherits? obj pred val)
   (for/or ([ancestor (set->list (isa-closure-set obj))])
     (member val (find-all ancestor pred))))
@@ -241,7 +254,7 @@ Key concepts:
 - **Triple store**: Knowledge as `triple` structs, not plain lists
 - **Wildcard queries**: `find-triples` accepts `#f` as wildcard; `query` builds on it
 - **Inheritance**: `inherits?` checks the isa closure instead of manual `describe` inspection
-- **Correct closure**: `isa-closure-set` uses a visited set, so diamonds and cycles do not duplicate or loop
+- **Correct closure**: `isa-ancestors` walks the isa links breadth first with a visited set, so diamonds and cycles do not duplicate or loop. It returns ancestors nearest first, so the demo prints the chain `dog`, `mammal`, `animal` in order. `isa-closure-set` wraps the same list in a set.
 
 ## Search, Planning, and Constraint Satisfaction
 
@@ -283,6 +296,8 @@ BFS and DFS are one search parameterized by a combiner. The full loop from `05-s
 
 Paths grow by consing onto the front, so the found path is reversed on return and traces read forward. The graph is directed, `search` handles `start == goal` without looping, and printing is opt-in via `#:trace?`. The combiner is the whole difference: BFS appends new paths after the old frontier (a queue), DFS puts them in front (a stack).
 
+`search` marks a node visited when it joins the frontier, not when it is expanded. This keeps BFS optimal and both searches finite. For DFS it means the expansion order can differ from textbook recursive DFS, though any path it returns is still valid.
+
 ### Constraint Satisfaction (`06-constraint-satisfaction.rkt`)
 
 The CSP solver now uses immutable hashes and `for/or`:
@@ -310,26 +325,26 @@ The CSP solver now uses immutable hashes and `for/or`:
 
 ## Shared Utilities
 
-You may have noticed that several examples above and in later chapters need the same small functions: a string reverse, a dot product, a product t-norm, an arithmetic s-expression evaluator. Earlier drafts copied these into each file, and the copies drifted — different argument checks, different comments, one outright arity bug. The book now factors them into `source-code/utils/`, one definition each, imported everywhere else:
+You may have noticed that several examples above and in later chapters need the same small functions: a string reverse, a dot product, a product t-norm, an arithmetic s-expression evaluator. Earlier drafts copied these into each file, and the copies drifted: different argument checks, different comments, one outright arity bug. The book now factors them into `source-code/utils/`, one definition each, imported everywhere else:
 
 ```
 source-code/
   utils.rkt              ; convenience re-export (see below)
   utils/
-    string.rkt           ; string-reverse, string-trim*
+    string.rkt           ; string-reverse
     math.rkt             ; dot, sigmoid, hamming, clamp01
     logic.rkt            ; t-and, t-and-list, t-not, t-impl
-    eval.rkt             ; eval-arith, ast-size helpers
+    eval.rkt             ; eval-arith, eval-expr-with-x, ast-size
 ```
 
 Highlights from the four modules, rather than their full source (the files themselves are short and worth reading):
 
 - `string-reverse` raises a contract error on non-strings. Four chapters import it instead of defining their own.
-- `dot` checks equal lengths before multiplying — the most common mistake when adding a new embedding dimension in Chapter 6.
+- `dot` checks equal lengths before multiplying. Unequal lengths are the most common mistake when adding a new embedding dimension in Chapter 6.
 - `t-and-list` returns `1.0` for the empty case, matching the logical identity for universal quantification over an empty domain in the LTN example.
-- `eval-arith` binds variables through a hash table, ending the hash-vs-alist drift between copies; `ast-size` counts AST nodes for the parsimony scores of Chapters 8 and 9.
+- `eval-arith` accepts a hash table or an association list for variable bindings, and raises an error that names an unbound variable instead of failing later inside `+`. `ast-size` counts AST nodes; the CEGIS example in Chapter 4 and the enumerators in Chapter 5 sort candidates by it so the smallest fitting program wins.
 
-Not every evaluator collapses to one function. Files needing division, `sq`, `pow2`, `pow3`, or `ite` extend `eval-arith` locally: utils holds the common core, chapter files hold the grammar-specific extension.
+Not every evaluator collapses to one function. Most chapters keep a small evaluator inline, with exactly the operators their grammar needs (division, `sq`, `pow2`, `pow3`, `ite`), so each listing reads on its own.
 
 If a file needs helpers from several utils at once, the aggregator re-exports all four:
 

@@ -28,10 +28,10 @@
   (if a #f #t))
 
 (define (logical-implies a b)
-  (if a b #t))
+  (if a (if b #t #f) #t))
 
 (define (logical-iff a b)
-  (if a b (not b)))
+  (if a (if b #t #f) (not b)))
 
 ;; Truth table: return list of (assignment result) instead of printing
 ;; Each assignment is a list of booleans aligned with vars
@@ -121,6 +121,8 @@
   (check-equal? (logical-implies #f #t) #t)
   (check-equal? (logical-iff #t #t) #t)
   (check-equal? (logical-iff #t #f) #f)
+  (check-equal? (logical-implies #t 5) #t) ; strict booleans even for truthy args
+  (check-equal? (logical-iff 1 2) #t)
   (check-false (evaluate '(and x y) (make-environment '(x y) '(#t #f))))
   (check-true (evaluate '(or x y) (make-environment '(x y) '(#t #f))))
   (check-equal? (length (truth-table '(x y) '(and x y))) 4)

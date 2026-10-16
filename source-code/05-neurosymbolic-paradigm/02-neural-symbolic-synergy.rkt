@@ -12,7 +12,8 @@
          neurosymbolic-add
          pure-neural-baseline)
 
-;; 3x3 binary patterns; 0 and 6 are now distinct (6 adds a tail pixel)
+;; 3x3 binary patterns. 0 and 6 differ in one pixel: 6 drops the
+;; bottom-middle pixel of 0.
 (define digit-alphabet
   '((0 . (1 1 1 1 0 1 1 1 1))
     (1 . (0 1 0 0 1 0 0 1 0))
@@ -29,7 +30,7 @@
   (car (argmin (lambda (pair) (hamming pattern (cdr pair))) digit-alphabet)))
 
 (define train-pairs
-  '((1 1 . 1) (2 1 . 2) (3 2 . 1) (4 2 . 2)
+  '((2 1 . 1) (3 1 . 2) (3 2 . 1) (4 2 . 2)
     (5 2 . 3) (6 3 . 3) (7 3 . 4) (8 4 . 4)))
 
 (define (pure-neural-baseline d1 d2)
@@ -64,4 +65,7 @@
   (check-not-equal? (cdr (assoc 0 digit-alphabet)) (cdr (assoc 6 digit-alphabet)))
   (check-equal? (hamming '(0 1 0) '(0 1 0)) 0)
   (check-equal? (pure-neural-baseline 2 3) 5)
-  (check-equal? (pure-neural-baseline 3 5) '?))
+  (check-equal? (pure-neural-baseline 3 5) '?)
+  ;; every memorized row is a correct sum: (sum d1 . d2)
+  (for ([row train-pairs])
+    (check-equal? (car row) (+ (cadr row) (cddr row)))))

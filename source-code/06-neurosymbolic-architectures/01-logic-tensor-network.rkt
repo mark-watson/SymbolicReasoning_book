@@ -77,6 +77,9 @@
 
 (module+ test
   (require rackunit)
-  (check-true (> (let ([s (kb-satisfaction)]) (for ([_ (in-range 10)]) (step!)) (kb-satisfaction)) 0))
+  ;; ascent must raise KB satisfaction (step! mutates the module's predicates)
+  (let ([before (kb-satisfaction)])
+    (for ([_ (in-range 10)]) (step!))
+    (check-true (> (kb-satisfaction) before)))
   (check-not-exn (lambda () (eval-pred friend (list alice bob))))
   (check-exn exn:fail? (lambda () (eval-pred (pred 'bad '(1.0)) (list alice bob)))))

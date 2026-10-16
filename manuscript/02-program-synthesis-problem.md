@@ -6,7 +6,7 @@ All code for this chapter is in `source-code/02-program-synthesis-problem/`. Com
 
 ## Enumerative Search: Bottom-Up
 
-The simplest synthesis loop is to generate programs in order of size and test each one. The Chapter 2 language is intentionally constant-only (`0`–`5`, `+`, `*`, `-`, no variable `x`) so the chapter can isolate enumeration mechanics from binding.
+The simplest synthesis loop is to generate programs in order of depth and test each one. The Chapter 2 language is intentionally constant-only (`0`–`5`, `+`, `*`, `-`, no variable `x`) so the chapter can isolate enumeration mechanics from binding.
 
 `01-enumerative-search.rkt` now memoizes and deduplicates:
 
@@ -26,12 +26,12 @@ The simplest synthesis loop is to generate programs in order of size and test ea
 
 (define generate-programs
   (let ([cache (make-hash)])
-    (lambda (max-size)
-      (hash-ref! cache max-size
+    (lambda (max-depth)
+      (hash-ref! cache max-depth
         (lambda ()
-          (if (= max-size 1)
+          (if (= max-depth 1)
               (list 0 1 2 3 4 5)
-              (let ([subs (generate-programs (max 1 (- max-size 1)))])
+              (let ([subs (generate-programs (- max-depth 1))])
                 (remove-duplicates
                  (append (list 0 1 2 3 4 5)
                          (for*/list ([a subs] [b subs] [op '(+ * -)])
@@ -42,12 +42,17 @@ The simplest synthesis loop is to generate programs in order of size and test ea
   (for/and ([ex examples]) (equal? val (cadr ex))))
 ```
 
-The change from the early draft is three small fixes: `-` is included in enumeration, results are deduplicated with `remove-duplicates` so observationally equal programs are not counted twice, and the double recursion is cached so size 3 no longer recomputes size 2 twice. The output now reports a deduped count:
+The change from the early draft is three small fixes: `-` is included in enumeration, results are deduplicated with `remove-duplicates` so observationally equal programs are not counted twice, and the double recursion is cached so depth 3 does not recompute depth 2 twice. The argument is tree depth, not node count: depth 1 holds the 6 constants, depth 2 holds 114 programs, and depth 3 holds 38,994. The output reports the deduped count:
 
 ```
-Programs of size 1:  (0 1 2 3 4 5)
-Programs of size 2:  Sample: (0 1 2 3 4 5 (+ 0 0) (* 0 0) (- 0 0) ...)
-Programs of size 3:  Count (deduped): 38994
+Programs of depth 1:
+  (0 1 2 3 4 5)
+
+Programs of depth 2:
+  Sample: (0 1 2 3 4 5 (+ 0 0) (* 0 0) (- 0 0) (+ 0 1) (* 0 1) (- 0 1) (+ 0 2) (* 0 2) (- 0 2))
+
+Programs of depth 3:
+  Count (deduped): 38994
 ```
 
 The chapter is honest about the constant-only limit. `(+ x x)` cannot be expressed here, so the full spec `f(0)=0, f(1)=2, f(2)=4, f(3)=6` fails and only a single-point spec like `((0 0))` succeeds. For that demo the input slot of the example pair is vestigial — the constant language ignores it; only the output `0` constrains the search. Chapter 3 adds `x` and the example then solves `(+ x x)`.
@@ -63,24 +68,37 @@ Version spaces keep the set of all hypotheses consistent with the examples, not 
 (define empty-space 'empty)
 (define (singleton prog) (list 'singleton prog))
 
+(define (singleton? vs) (and (pair? vs) (eq? (car vs) 'singleton)))
+(define (normalize vs) (if (null? vs) empty-space vs))
+
 (define (vs-intersect vs1 vs2)
   (cond
     [(eq? vs1 empty-space) empty-space]
     [(eq? vs2 empty-space) empty-space]
     [(eq? vs1 universal-space) vs2]
     [(eq? vs2 universal-space) vs1]
+    [(singleton? vs1)
+     (cond
+       [(in-space? (cadr vs1) vs2) vs1]
+       [else empty-space])]
+    [(singleton? vs2)
+     (cond
+       [(in-space? (cadr vs2) vs1) vs2]
+       [else empty-space])]
     [(and (list? vs1) (list? vs2))
-     (filter (lambda (p) (member p vs2)) vs1)]
+     (normalize (filter (lambda (p) (member p vs2)) vs1))]
     [else empty-space]))
 
 (define (in-space? prog vs)
-  (cond [(eq? vs empty-space) #f]
-        [(eq? vs universal-space) #t]
-        [(list? vs) (and (member prog vs) #t)]
-        [else #f]))
+  (cond
+    [(eq? vs empty-space) #f]
+    [(eq? vs universal-space) #t]
+    [(singleton? vs) (equal? prog (cadr vs))]
+    [(list? vs) (and (member prog vs) #t)]
+    [else #f]))
 ```
 
-`in-space?` now returns strict `#t`/`#f` (the draft returned the `member` tail), and the `singleton` case is handled without conflating it with a plain list. The demo shows the collapse that the constant-only language forces: after `f(0)=0, f(1)=2, f(2)=4, f(3)=6` the version space is `()`—no constant fits all four points—which is exactly the lesson the chapter wants.
+`in-space?` returns strict `#t`/`#f`, not the tail that `member` returns. A singleton `(singleton p)` is itself a two-element list, so every function tests `singleton?` before `list?`. Without that order, `(in-space? 'singleton (singleton 2))` would return `#t`. `normalize` turns an empty filter result into `empty-space`, so the empty space has one representation. The demo shows the collapse that the constant-only language forces: after `f(0)=0, f(1)=2, f(2)=4, f(3)=6` the version space is `empty`, since no constant fits all four points.
 
 ## Stochastic and Evolutionary Search
 
@@ -104,7 +122,7 @@ When enumeration is too large, population methods trade completeness for speed. 
       (random-ref (list p1 p2))))
 ```
 
-`fitness` is unchanged (negative total error) but now uses the same `eval-expr` as the other files. The dead `return` stub is removed, and `gp` uses `argmax` over fitness and keeps elites plus `crossover`/`mutate` offspring. The demo still shows fitness stuck at `-8` for the constant-only `f(x)=2x` task—correctly, because no constant can reach `0`—and then shows `mutate` and `crossover` preserving shape.
+`fitness` is unchanged (negative total error) but now uses the same `eval-expr` as the other files. The dead `return` stub is removed, and `gp` uses `argmax` over fitness and keeps elites plus `crossover`/`mutate` offspring. The demo shows fitness stuck at `-8` for the constant-only `f(x)=2x` task, as it must be, because no constant can reach `0`. It then shows `mutate` and `crossover` preserving shape. The demo calls `(random-seed 42)` inside `main`, so its transcript repeats from run to run, while requiring the file leaves the global random state alone. `gp` prints its per-generation trace only when called with `#:trace? #t`.
 
 ## Formal Problem Statement
 
@@ -117,10 +135,10 @@ When enumeration is too large, population methods trade completeness for speed. 
   (match prog
     ['reverse (string-reverse (car input))]
     [`(concat ,a ,b) (string-append (eval-string a input) (eval-string b input))]
-    [_ input]))
+    [_ (raise-argument-error 'eval-string "string program" prog)]))
 ```
 
-The draft evaluated `cadr` twice for `(concat a b)`; the fixed version uses `a` and `b` (i.e., `cadr` and `caddr` in the old `cond` form). `string-reverse` is now imported from `utils/string.rkt` so the four copies across the book converge. The `verify` lambdas are documented as closing over the struct’s own examples, and `verify-candidate` guards against a `#f` verifier.
+The draft evaluated `cadr` twice for `(concat a b)`; the fixed version uses `a` and `b` (i.e., `cadr` and `caddr` in the old `cond` form). `string-reverse` is now imported from `utils/string.rkt` so the four copies across the book converge. The `verify` lambdas close over the struct’s own examples, and `verify-candidate` guards against a `#f` verifier. An unknown program raises an error; an earlier draft returned the input list, which then broke `string-append` with a confusing message.
 
 ---
 
@@ -133,7 +151,7 @@ cd source-code/02-program-synthesis-problem
 racket 01-enumerative-search.rkt       # enumeration with dedup and memoization
 racket 02-version-space-algebras.rkt  # universal/empty, strict in-space?
 racket 03-stochastic-search.rkt       # subtree mutate/crossover
-racket 04-problem-formulation.rkt     # struct + caddr fix
+racket 04-problem-formulation.rkt     # problem struct and string DSL
 
 # library use (no demo output)
 racket -e '(require "01-enumerative-search.rkt") (displayln (generate-programs 1))'

@@ -1,27 +1,26 @@
 #lang racket
 
-;;; Arithmetic evaluators shared by enumerative, stochastic, CEGIS, SyGuS,
-;;; generalization, hypothesis generation, and leaderboard chapters
-;;; Provides small evaluators over s-expression grammars with explicit
-;;; variable handling and a node-count size function.
+;;; Arithmetic evaluator and AST size shared by the learned-proposer,
+;;; CEGIS, and compositional case-study examples. Most chapters keep their
+;;; own small evaluator inline so each listing reads on its own.
 
 (provide eval-arith
-         eval-arith-env
          eval-expr-with-x
-         ast-size
-         ast-size-extended)
+         ast-size)
 
 (require racket/match)
 
-;; Simple evaluator for (+ * -) over numbers and variable 'x.
-;; env is a hash mapping 'x -> value, or '() for closed terms.
+;; Simple evaluator for (+ * -) over numbers and variables.
+;; env is a hash or an alist mapping symbols to numbers ('() for closed
+;; terms). An unbound variable is an error at the variable itself.
 (define (eval-arith expr env)
+  (define (unbound s) (error 'eval-arith "unbound variable ~a" s))
   (match expr
     [(? number? n) n]
     [(? symbol? s)
-     (cond [(hash? env) (hash-ref env s s)]
-           [(list? env) (let ([p (assq s env)]) (if p (cdr p) s))]
-           [else s])]
+     (cond [(hash? env) (hash-ref env s (lambda () (unbound s)))]
+           [(assq s env) => cdr]
+           [else (unbound s)])]
     [`(+ ,a ,b) (+ (eval-arith a env) (eval-arith b env))]
     [`(- ,a ,b) (- (eval-arith a env) (eval-arith b env))]
     [`(* ,a ,b) (* (eval-arith a env) (eval-arith b env))]
@@ -31,29 +30,12 @@
 (define (eval-expr-with-x expr xval)
   (eval-arith expr (hash 'x xval)))
 
-;; For callers that pass x as positional arg (legacy)
-(define (eval-arith-env expr x)
-  (eval-expr-with-x expr x))
-
-;; Node count for (+ - *) trees; symbols and numbers count as 1
+;; Node count: symbols and numbers count as 1, each operator node adds 1.
+;; Covers every operator used in the book's grammars.
 (define (ast-size e)
   (match e
-    [(or (? number? ) (? symbol?)) 1]
-    [`(,(or '+ '- '*) ,a ,b) (+ 1 (ast-size a) (ast-size b))]
+    [(or (? number?) (? symbol?)) 1]
+    [`(,(or '+ '- '* '/ '<=) ,a ,b) (+ 1 (ast-size a) (ast-size b))]
     [`(,(or 'inc 'dec 'mod4 'sq 'pow2 'pow3) ,a) (+ 1 (ast-size a))]
     [`(ite ,c ,t ,f) (+ 1 (ast-size c) (ast-size t) (ast-size f))]
-    [`(<= ,a ,b) (+ 1 (ast-size a) (ast-size b))]
-    [_ 1]))
-
-;; Extended size that also handles (/ sq pow2 pow3 ite <=)
-(define (ast-size-extended e)
-  (match e
-    [(or (? number? ) (? symbol?)) 1]
-    [`(sq ,a) (+ 1 (ast-size-extended a))]
-    [`(pow2 ,a) (+ 1 (ast-size-extended a))]
-    [`(pow3 ,a) (+ 1 (ast-size-extended a))]
-    [`(,(or '+ '- '* '/) ,a ,b) (+ 1 (ast-size-extended a) (ast-size-extended b))]
-    [`(,(or 'inc 'dec 'mod4) ,a) (+ 1 (ast-size-extended a))]
-    [`(ite ,c ,t ,f) (+ 1 (ast-size-extended c) (ast-size-extended t) (ast-size-extended f))]
-    [`(<= ,a ,b) (+ 1 (ast-size-extended a) (ast-size-extended b))]
-    [_ 1]))
+    [_ (raise-argument-error 'ast-size "AST" e)]))

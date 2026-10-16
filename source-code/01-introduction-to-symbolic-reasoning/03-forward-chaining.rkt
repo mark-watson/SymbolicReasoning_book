@@ -46,9 +46,7 @@
 
 ;; Find all matches for a pattern in facts
 (define (find-matches pattern facts env)
-  (for/list ([f facts]
-             #:when (match-pattern pattern f env))
-    (match-pattern pattern f env)))
+  (filter-map (lambda (f) (match-pattern pattern f env)) facts))
 
 ;; Resolve pattern variables with environment
 (define (resolve-pattern pattern env)
@@ -62,20 +60,20 @@
     [else pattern]))
 
 ;; One round: apply each rule once, collecting new facts
-;; Naive: no indexing, no RETE. Re-derives are filtered by membership.
+;; Naive: no indexing, no RETE. Re-derives are filtered by membership,
+;; and a fact reached by several bindings is returned once.
 (define (derive-once rule facts)
   (define conclusion (car rule))
   (define premises (cdr rule))
   (define envs
-    (if (null? premises)
-        (list '())
-        (foldl (lambda (prem envs)
-                 (append-map (lambda (env) (find-matches prem facts env)) envs))
-               (list '()) premises)))
-  (filter values
-          (for/list ([env envs] #:when env)
-            (define nf (resolve-pattern conclusion env))
-            (if (and nf (not (member nf facts))) nf #f))))
+    (foldl (lambda (prem envs)
+             (append-map (lambda (env) (find-matches prem facts env)) envs))
+           (list '()) premises))
+  (remove-duplicates
+   (for*/list ([env envs]
+               [nf (in-value (resolve-pattern conclusion env))]
+               #:unless (member nf facts))
+     nf)))
 
 ;; Main forward chaining loop (pure over the passed facts)
 ;; max-iterations caps the fixpoint search. Set #:trace? to print.
@@ -83,7 +81,8 @@
   (let loop ([all-facts facts] [iter 0])
     (if (>= iter max-iterations)
         all-facts
-        (let ([all-new (append-map (lambda (rule) (derive-once rule all-facts)) rules)])
+        (let ([all-new (remove-duplicates
+                        (append-map (lambda (rule) (derive-once rule all-facts)) rules))])
           (if (null? all-new)
               all-facts
               (begin
@@ -150,4 +149,8 @@
         [rules '(((connected ?x ?y) (edge ?x ?y))
                  ((connected ?x ?z) (edge ?x ?y) (connected ?y ?z)))])
     (define res (forward-chain rules facts 5))
-    (check-not-false (member '(connected a c) res))))
+    (check-not-false (member '(connected a c) res)))
+  ;; Diamond: (reach a d) has two derivations but is stored once
+  (let ([res (forward-chain '(((reach ?x ?z) (e ?x ?y) (e ?y ?z)))
+                            '((e a b) (e a c) (e b d) (e c d)) 5)])
+    (check-equal? (count (lambda (f) (equal? f '(reach a d))) res) 1)))

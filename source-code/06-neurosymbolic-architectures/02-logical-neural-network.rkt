@@ -2,6 +2,8 @@
 
 ;;; Logical Neural Network (LNN): formula is the network.
 ;;; P AND (P -> Q), with finite-difference ascent on Q.
+;;; Uses the product t-norm and Reichenbach implication for simplicity;
+;;; IBM's LNN uses weighted Lukasiewicz logic with upper/lower bounds.
 
 (require "../utils/logic.rkt")
 
@@ -14,7 +16,7 @@
 (define (eval-neuron-pure n)
   (match (neuron-kind n)
     ['input (neuron-value n)]
-    ['and (apply * (map eval-neuron-pure (neuron-inputs n)))]
+    ['and (t-and-list (map eval-neuron-pure (neuron-inputs n)))]
     ['impl (t-impl (eval-neuron-pure (first (neuron-inputs n)))
                    (eval-neuron-pure (second (neuron-inputs n))))]
     [_ (raise-argument-error 'eval-neuron "known kind" (neuron-kind n))]))

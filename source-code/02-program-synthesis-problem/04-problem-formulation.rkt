@@ -40,7 +40,7 @@
     ['to-upper (string-upcase (car input))]
     [`(concat ,a ,b)
      (string-append (eval-string a input) (eval-string b input))]
-    [_ input]))
+    [_ (raise-argument-error 'eval-string "string program" prog)]))
 
 ;; Example 1: Learning a linear function
 (define linear-examples '((0 0) (1 2) (2 4) (3 6)))
@@ -100,15 +100,15 @@
   (displayln "Synthesis problems formally define examples, grammar, and verify.")
 
   (displayln "")
-  (displayln "Bug fix: caddr now used for second concat arg (was cadr twice).")
-  (displayln (format "  (concat reverse reverse) on (john smith) -> ~a"
-                     (eval-string '(concat reverse reverse) '("john" "smith")))))
+  (displayln (format "(concat reverse to-upper) on (john smith) -> ~a"
+                     (eval-string '(concat reverse to-upper) '("john" "smith")))))
 
 (module+ test
   (require rackunit)
   (check-equal? (eval-expr '(+ 1 2) '()) 3)
   (check-equal? (eval-string 'reverse '("hello")) "olleh")
   (check-equal? (eval-string '(concat reverse reverse) '("a" "b")) "aa")
+  (check-exn exn:fail? (lambda () (eval-string 'no-such-op '("a"))))
   (check-false (verify-candidate linear-problem 123))
   (check-false (verify-candidate (specify '((0 0)) '(+)) 0))
   (check-equal? (synthesis-problem-name (specify '((0 0)) '(+))) #f))

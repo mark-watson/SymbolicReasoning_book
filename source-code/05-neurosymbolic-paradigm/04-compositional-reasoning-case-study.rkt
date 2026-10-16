@@ -7,7 +7,8 @@
          satisfies?
          enumerate)
 
-(require racket/match)
+(require racket/match
+         (only-in "../utils/eval.rkt" ast-size))
 
 (define (eval-expr e x)
   (match e
@@ -17,14 +18,17 @@
     [`(* ,a ,b) (* (eval-expr a x) (eval-expr b x))]
     [_ (raise-argument-error 'eval-expr "arith expr" e)]))
 
-;; Ordered by size: x,0,1 first, then (+ , ) then (* , ). Smallest fit wins.
+;; Stably sorted by node count, so the smallest fitting program wins
+;; (ties keep generation order: + before *).
 (define (gen-exprs depth)
-  (if (= depth 0)
-      '(x 0 1)
-      (let ([subs (gen-exprs (- depth 1))])
-        (append '(x 0 1)
-                (for*/list ([a subs] [b subs]) `(+ ,a ,b))
-                (for*/list ([a subs] [b subs]) `(* ,a ,b))))))
+  (define (layer depth)
+    (if (= depth 0)
+        '(x 0 1)
+        (let ([subs (layer (- depth 1))])
+          (append '(x 0 1)
+                  (for*/list ([a subs] [b subs]) `(+ ,a ,b))
+                  (for*/list ([a subs] [b subs]) `(* ,a ,b))))))
+  (sort (layer depth) < #:key ast-size #:cache-keys? #t))
 
 (define (satisfies? prog examples)
   (andmap (lambda (ex) (= (eval-expr prog (car ex)) (cdr ex))) examples))
@@ -50,4 +54,5 @@
 (module+ test
   (require rackunit)
   (check-equal? (enumerate '((3 . 6)) 2) '(+ x x))
-  (check-equal? (eval-expr '(+ x x) 5) 10))
+  (check-equal? (eval-expr '(+ x x) 5) 10)
+  (check-equal? (enumerate '((0 . 0) (1 . 1) (2 . 4)) 2) '(* x x)))

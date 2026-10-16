@@ -21,12 +21,12 @@
 (define test-input '(5 1 3 2))
 (define test-output '(2 3 1 5))
 
-(define (consistent-with-train? fn)
-  (andmap (lambda (pair) (equal? (fn (car pair)) (cdr pair))) train))
+(define (consistent-with-train? fn [train-pairs train])
+  (andmap (lambda (pair) (equal? (fn (car pair)) (cdr pair))) train-pairs))
 
+;; All DSL entries consistent with the given training pairs
 (define (solve-arc train-pairs)
-  ;; train-pairs param allows testing with different sets
-  (filter (lambda (entry) (andmap (lambda (pair) (equal? ((cdr entry) (car pair)) (cdr pair))) train-pairs)) dsl))
+  (filter (lambda (entry) (consistent-with-train? (cdr entry) train-pairs)) dsl))
 
 (module+ main
   (define matches (solve-arc train))

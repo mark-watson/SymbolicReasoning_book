@@ -119,8 +119,9 @@
                     [e2 (hash-ref (dag-edges d2) (cdr node) '())]
                     [atoms (in-value (remove-duplicates
                                       (for*/list ([a1 (cdr e1)] [a2 (cdr e2)]
-                                                    #:when (atom-meet a1 a2))
-                                          (atom-meet a1 a2))))]
+                                                  [m (in-value (atom-meet a1 a2))]
+                                                  #:when m)
+                                        m)))]
                     #:when (pair? atoms))
           (cons (cons (car e1) (car e2)) atoms)))
       (hash-set! edges node out)

@@ -21,7 +21,7 @@
        (> (string-length (symbol->string x)) 0)
        (char=? (string-ref (symbol->string x) 0) #\?)))
 
-;; One-step chase: follow chain ?x -> ?y -> a
+;; Follow a binding chain ?x -> ?y -> a to its end
 (define (subst-lookup var env)
   (let loop ([v var])
     (define p (assq v env))

@@ -28,14 +28,13 @@ A nearest‑neighbor baseline does not learn the function at all; it simply retu
 For an unseen input `x = 4`, the nearest neighbor is `3`, so the baseline predicts `0`—a result that appears plausible (the task is cyclic) but is derived from proximity, not from the underlying rule. In contrast, the synthesizer enumerates a small expression grammar and returns the first program that matches all training points:
 
 ```racket
-;; candidates is a fixed bounded set; depth param previously unused, now aliased
 (define (candidates) (remove-duplicates (append leaves unary binary)))
-(define (gen-exprs depth) (candidates))  ; backward compatible
-(define (synthesize examples depth)
+
+(define (synthesize examples)
   (findf (lambda (e) (satisfies? e examples)) (candidates)))
 ```
 
-Because the grammar includes `mod4`, the synthesizer finds `(mod4 (+ x 1))`. The duplicate `(mod4 (* x x))` in the draft’s `binary` list is now deduplicated. That program is *compositional*: it applies a known primitive (`+1`) and then wraps it in `mod4`. Once it is discovered, it generalizes to every integer input. Running the example shows that the synthesized program matches the hidden function on the held‑out inputs 4 through 8, while the nearest‑neighbor baseline can only guess.
+Because the grammar includes `mod4`, the synthesizer finds `(mod4 (+ x 1))`. The candidate list is hand-written: leaves, unary and binary terms over leaves, plus a few deeper `mod4` forms, one of which is the answer. A real system would enumerate these from a grammar. The point here is what happens once a fitting program is found, not how large the search is. That program is *compositional*: it applies a known primitive (`+1`) and then wraps it in `mod4`. Once it is discovered, it generalizes to every integer input. Running the example shows that the synthesized program matches the hidden function on the held‑out inputs 4 through 8, while the nearest‑neighbor baseline can only guess.
 
 ## Compositional Abstractions and Reusable Modules
 
@@ -69,10 +68,12 @@ For task1 it discovers `(inc)`, and for task2 it discovers `(double)`. After the
 The output shows the concrete advantage:
 
 ```
-Task3 (double ∘ inc): examples ((0 . 2) (1 . 4) (2 . 6))
-  Without macro (depth 2 search): (inc double)
-  With macro (depth 1 search):    (macro)
+Task3 (double∘inc): ((0 . 2) (1 . 4) (2 . 6))
+  Without macro (depths 1-2, up to 3+9 candidates): (inc double)
+  With macro    (depth 1, up to 4 candidates):     (macro)
 ```
+
+Without the macro, the search tries all 3 one-step programs and then up to 9 two-step programs. With the macro it needs at most the 4 one-step programs.
 
 By compressing a commonly used composition into a reusable unit, the synthesizer reduces the effective search space and can tackle increasingly complex problems. This mirrors the way modern synthesis systems maintain libraries of learned snippets and use them to scale to larger domains.
 
@@ -92,28 +93,44 @@ The example `03-test-time-adaptation.rkt` implements online synthesis of a simpl
     (list a b)))
 ```
 
-The online loop uses this synthesizer repeatedly, now returning `void` at the end (the draft returned the example list and printed a quoted `'((0 . 1) ...)` line of noise):
+The online loop calls this synthesizer after each new example. It returns the final model, or `#f` as soon as no `a*x + b` with `a` and `b` in the domain fits the examples seen so far:
 
 ```racket
 (define (online-synthesis stream)
-  (let loop ([examples '()] [rest stream] [step 1])
-    (if (null? rest) (begin (displayln (format "Final model after ~a examples: ~a" (length examples) examples)) (void))
-        (let* ([pair (car rest)] [examples* (append examples (list pair))] [model (synthesize-on-the-fly examples*)])
-          (displayln (format "Step ~a: seen ~a, synthesized f(x)=~a*x+~a" step pair (first model) (second model)))
-          (loop examples* (cdr rest) (+ step 1))))))
+  (let loop ([examples '()] [rest stream] [step 1] [model #f])
+    (if (null? rest)
+        (begin
+          (displayln (format "Final model after ~a examples: ~a" (length examples)
+                             (if model (format "f(x)=~a*x+~a" (first model) (second model)) "none")))
+          model)
+        (let* ([pair (car rest)]
+               [examples* (append examples (list pair))]
+               [model* (synthesize-on-the-fly examples*)])
+          (cond
+            [model*
+             (displayln (format "Step ~a: seen ~a, synthesized f(x)=~a*x+~a"
+                                step pair (first model*) (second model*)))
+             (loop examples* (cdr rest) (+ step 1) model*)]
+            [else
+             (displayln (format "Step ~a: seen ~a, no a*x+b with a,b in ~a fits; stopping."
+                                step pair domain))
+             #f])))))
 ```
 
-Because the system returns an explicit model `(a . b)`, it can be applied immediately to any new input without retraining. When the stream arrives as `((0 . 1) (1 . 3) (2 . 5))`, the synthesizer first proposes `0*x + 1`, then `2*x + 1`, and remains at `2*x + 1` after the third step. The final model correctly predicts `f(4) = 9`, illustrating how test‑time synthesis turns a stream of raw pairs into a reusable, general artifact.
+Stopping matters. A stream such as `((0 . 1) (1 . 10))` needs `a = 9`, which lies outside the domain, so `synthesize-on-the-fly` returns `#f`. Without the check, the loop would crash calling `first` on `#f`.
+
+Because the system returns an explicit model `(a b)`, it can be applied immediately to any new input without retraining. When the stream arrives as `((0 . 1) (1 . 3) (2 . 5))`, the synthesizer first proposes `0*x + 1`, then `2*x + 1`, and remains at `2*x + 1` after the third step. The final model correctly predicts `f(4) = 9`, illustrating how test‑time synthesis turns a stream of raw pairs into a reusable, general artifact.
 
 ## Program Synthesis for Autonomous Skill Acquisition
 
 The ultimate goal of synthesis research is not just to solve a fixed set of tasks but to build systems that acquire new capabilities autonomously over time. In this framing, skills are programs that can be discovered, given names, stored in a library, and composed into more complex skills.
 
-The example `04-skill-acquisition.rkt` implements a tiny skill library. Skills are Racket functions stored in a mutable association list. The system begins with an empty library and then synthesizes two simple skills from examples:
+The example `04-skill-acquisition.rkt` implements a tiny skill library. Skills are Racket functions stored in an association list held by a parameter. The system begins with an empty library and then synthesizes two simple skills from examples:
 
 ```racket
-(define skill-library (make-parameter '()))  ; parameter, not set! global
-(define (synthesize-skill examples)  ; no unused max-depth
+(define skill-library (make-parameter '()))
+
+(define (synthesize-skill examples)
   (define candidates '(x (+ x x) (* x x) (+ x 1) (* 2 x) (* 3 x)))
   (findf (lambda (e) (andmap (lambda (ex) (= (eval-expr e (car ex)) (cdr ex))) examples)) candidates))
 
@@ -127,14 +144,12 @@ The synthesizer used here enumerates a small set of arithmetic programs and retu
 
 ```racket
 (define (compose-skills name1 name2 new-name)
-  (let ((f (get-skill name1))
-        (g (get-skill name2)))
-    (add-skill! new-name (lambda (x) (f (g x))))))
+  (add-skill! new-name (lambda (x) ((get-skill name1) ((get-skill name2) x)))))
 
 (compose-skills 'double 'square 'two-x-squared)
 ```
 
-The composed skill `two-x-squared` computes `2*(x*x)`, and it can be evaluated on fresh inputs without any further learning. Running the example shows the full pipeline: the system discovers skills, gives them names, and then builds a new capability that did not exist in the original library.
+`compose-skills` looks up both skills each time the new skill runs, not when it is defined. If a later step replaces `square` with a better version, `two-x-squared` uses the new one. The composed skill `two-x-squared` applies `square` first and then `double`, so it computes `2*(x*x)`, and it can be evaluated on fresh inputs without any further learning. Running the example shows the full pipeline: the system discovers skills, gives them names, and then builds a new capability that did not exist in the original library.
 
 This example is deliberately minimal, but it captures the lifecycle that any autonomous skill‑acquisition system must support: propose a candidate skill from data, validate it, store it, and then reuse it as a building block for future skills. Lifelong learning systems can repeat this loop indefinitely, gradually accumulating a richer and richer library of composable skills.
 

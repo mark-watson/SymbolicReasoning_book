@@ -19,7 +19,8 @@
 (define ops '(+ * -))
 (define symbols (append leaves ops))
 
-;; Every expression up to depth 2 (about 8,000 programs), smallest first.
+;; Every expression up to depth 2 (8,116 programs), stably sorted so
+;; smaller programs come first (ties keep generation order).
 (define (exprs-to-depth d)
   (if (= d 0)
       leaves
@@ -27,7 +28,8 @@
         (append leaves
                 (for*/list ([op ops] [a subs] [b subs]) (list op a b))))))
 
-(define (all-exprs) (exprs-to-depth 2))
+(define (all-exprs)
+  (sort (exprs-to-depth 2) < #:key ast-size #:cache-keys? #t))
 
 ;; Production events: each node emits (context . symbol), where context is
 ;; 'root or (parent-op . argument-position). This is a bigram model over
